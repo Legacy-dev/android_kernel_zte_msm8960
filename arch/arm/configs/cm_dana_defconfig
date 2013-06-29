@@ -1305,6 +1305,7 @@ CONFIG_WCNSS_CORE=y
 # CONFIG_LIBERTAS is not set
 # CONFIG_MWIFIEX is not set
 CONFIG_PRIMA_WLAN=m
+CONFIG_WCNSS_MEM_PRE_ALLOC=y
 
 #
 # Enable WiMAX (Networking options) to see the WiMAX drivers
