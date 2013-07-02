@@ -215,6 +215,230 @@ static int __devinit pm8xxx_mpp_reg_init(struct pm8xxx_mpp_chip *mpp_chip)
 	return 0;
 }
 
+#ifndef ZTE_PMIC_MPP_DEBUG
+#define ZTE_PMIC_MPP_DEBUG
+#endif
+
+#ifdef ZTE_PMIC_MPP_DEBUG
+static struct gpio_chip *pm8xxx_mpp_gpio_chip=NULL;
+
+int pm8xxx_dump_mpps(struct seq_file *m, int curr_len, char *gpio_buffer)
+{
+	static const char *ctype[] = { "d_in", "d_out", "bi_dir", "a_in",
+		"a_out", "sink", "dtest_sink", "dtest_out" };
+	struct pm8xxx_mpp_chip *mpp_chip;
+	u8 type, state,vin_sel;
+	const char *label;
+	int i, len;
+	char gpio_buf[128];
+	char *title_msg = "---------- PMIC 8921 MPP ----------";
+
+	if (m) {
+		seq_printf(m, "%s\n", title_msg);
+	} else {
+		pr_info("%s\n", title_msg);
+		if(gpio_buffer)
+		    curr_len += sprintf(gpio_buffer + curr_len,"%s\n", title_msg);
+	}
+
+	mpp_chip = dev_get_drvdata(pm8xxx_mpp_gpio_chip->dev);
+
+      for (i = 0; i < mpp_chip->nmpps; i++) {
+
+		memset(gpio_buf, 0, sizeof(gpio_buf));
+		len = 0;
+		
+		label = gpiochip_is_requested(pm8xxx_mpp_gpio_chip, i);
+		type = (mpp_chip->ctrl_reg[i] & PM8XXX_MPP_TYPE_MASK) >>
+			PM8XXX_MPP_TYPE_SHIFT;
+		state = pm8xxx_mpp_get(pm8xxx_mpp_gpio_chip, i);
+	
+		len += sprintf(gpio_buf + len, "PM_MPP[%-3d]: ", i+1);
+		len += sprintf(gpio_buf + len, "[LABEL]%-12.12s: ", label ? label : "--");
+		len += sprintf(gpio_buf + len, "[TYPE]%-10.10s, ", ctype[type]);
+		len += sprintf(gpio_buf + len, "[VAL]%s, ", state? "HIGH" : " LOW");
+		
+		vin_sel = (mpp_chip->ctrl_reg[i] & PM8XXX_MPP_CONFIG_LVL_MASK) >>PM8XXX_MPP_CONFIG_LVL_SHIFT;	 
+              if(type==0||type==1||type==2) //"d_in", "d_out", "bi_dir"
+              {
+		    switch (vin_sel) {
+        	       case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]S4, ");
+       			break;
+       		case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]L15, ");
+       			break;
+			case 0x4:
+       			len += sprintf(gpio_buf + len, "[VIN]L17, ");
+       			break;
+			case 0x7:
+       			len += sprintf(gpio_buf + len, "[VIN]VPH, ");
+       			break;	
+       		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+              }
+		else if(type==3) //"a_in"
+		{
+		     switch (vin_sel) {
+        	       case 0x0:
+       			len += sprintf(gpio_buf + len, "[VIN]CH5, ");
+       			break;
+       		case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]CH6, ");
+       			break;
+			case 0x2:
+       			len += sprintf(gpio_buf + len, "[VIN]CH7, ");
+       			break;
+			case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]CH8, ");
+       			break;	
+			case 0x4:
+       			len += sprintf(gpio_buf + len, "[VIN]CH9, ");
+       			break;
+       		case 0x5:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS1, ");
+       			break;
+			case 0x6:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS2, ");
+       			break;
+			case 0x7:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS3, ");
+       			break;		
+       		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+	       }
+		else if(type==4) //"a_out"
+		{
+		     switch (vin_sel) {
+        	       case 0x0:
+       			len += sprintf(gpio_buf + len, "[VIN]1V25, ");
+       			break;
+       		case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]1V25_2, ");
+       			break;
+			case 0x2:
+       			len += sprintf(gpio_buf + len, "[VIN]0V625, ");
+       			break;
+			case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]0V3125, ");
+       			break;	
+			case 0x4:
+       			len += sprintf(gpio_buf + len, "[VIN]MPP, ");
+       			break;
+       		case 0x5:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS1, ");
+       			break;
+			case 0x6:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS2, ");
+       			break;
+			case 0x7:
+       			len += sprintf(gpio_buf + len, "[VIN]ABUS3, ");
+       			break;		
+       		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+	       }
+		else if(type==5) //"sink"
+		{
+		     switch (vin_sel) {
+        	       case 0x0:
+       			len += sprintf(gpio_buf + len, "[VIN]5MA ");
+       			break;
+       		case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]10MA, ");
+       			break;
+			case 0x2:
+       			len += sprintf(gpio_buf + len, "[VIN]15MA, ");
+       			break;
+			case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]20MA, ");
+       			break;	
+			case 0x4:
+       			len += sprintf(gpio_buf + len, "[VIN]25MA, ");
+       			break;
+       		case 0x5:
+       			len += sprintf(gpio_buf + len, "[VIN]30MA, ");
+       			break;
+			case 0x6:
+       			len += sprintf(gpio_buf + len, "[VIN]35MA, ");
+       			break;
+			case 0x7:
+       			len += sprintf(gpio_buf + len, "[VIN]40MA, ");
+       			break;		
+       		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+	       }
+		else if(type==6) //"dtest_sink"
+		{
+		     switch (vin_sel) {
+        	       case 0x0:
+       			len += sprintf(gpio_buf + len, "[VIN]EN1 ");
+       			break;
+       		case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]EN2, ");
+       			break;
+			case 0x2:
+       			len += sprintf(gpio_buf + len, "[VIN]EN3, ");
+       			break;
+			case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]EN4, ");
+       			break;	
+	      		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+	       }
+		else if(type==7)// "dtest_out"
+		{
+		     switch (vin_sel) {
+        	       case 0x0:
+       			len += sprintf(gpio_buf + len, "[VIN]DBUS1 ");
+       			break;
+       		case 0x1:
+       			len += sprintf(gpio_buf + len, "[VIN]DBUS2, ");
+       			break;
+			case 0x2:
+       			len += sprintf(gpio_buf + len, "[VIN]DBUS3, ");
+       			break;
+			case 0x3:
+       			len += sprintf(gpio_buf + len, "[VIN]DBUS4, ");
+       			break;	
+	      		default:
+				len += sprintf(gpio_buf + len, "[VIN]unknown, ");	
+       			break;
+       		}
+	       }
+		
+//            len += sprintf(gpio_buf + len, "[CTRL]0x%02x ", mpp_chip->ctrl_reg[i]);
+			  
+		gpio_buf[127] = '\0';
+    
+		if (m) {
+			seq_printf(m, "%s\n", gpio_buf);
+		} else {
+			pr_info("%s\n", gpio_buf);
+			if(gpio_buffer)
+			    curr_len += sprintf(gpio_buffer +	curr_len, "%s\n", gpio_buf);
+		}
+	}
+
+	return curr_len;
+}
+#else
+int pm8xxx_dump_mpps(struct seq_file *m, int curr_len, char *gpio_buffer)
+{
+}
+#endif
+EXPORT_SYMBOL(pm8xxx_dump_mpps);
+
+
 static int __devinit pm8xxx_mpp_probe(struct platform_device *pdev)
 {
 	int rc;
@@ -239,6 +463,10 @@ static int __devinit pm8xxx_mpp_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto free_mpp_chip;
 	}
+
+#ifdef ZTE_PMIC_MPP_DEBUG
+	pm8xxx_mpp_gpio_chip = &(mpp_chip->gpio_chip);
+#endif
 
 	spin_lock_init(&mpp_chip->pm_lock);
 

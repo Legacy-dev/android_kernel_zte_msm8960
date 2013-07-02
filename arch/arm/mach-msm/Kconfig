@@ -168,6 +168,7 @@ config ARCH_MSM8960
 	select MULTI_IRQ_HANDLER
 	select MSM_PM8X60 if PM
 	select HOLES_IN_ZONE if SPARSEMEM
+	select MSM_KRAIT_WFE_FIXUP
 
 config ARCH_MSM8930
 	bool "MSM8930"
@@ -205,6 +206,7 @@ config ARCH_MSM8930
 	select MULTI_IRQ_HANDLER
 	select MSM_PM8X60 if PM
 	select HOLES_IN_ZONE if SPARSEMEM
+	select MSM_KRAIT_WFE_FIXUP
 
 config ARCH_APQ8064
 	bool "APQ8064"
@@ -222,6 +224,7 @@ config ARCH_APQ8064
 	select MULTI_IRQ_HANDLER
 	select MSM_PM8X60 if PM
 	select HOLES_IN_ZONE if SPARSEMEM
+	select MSM_KRAIT_WFE_FIXUP
 
 config ARCH_MSMCOPPER
 	bool "MSM Copper"
@@ -308,6 +311,9 @@ config  ARCH_MSM_KRAITMP
 	select MSM_SMP
 	bool
 
+config  MSM_KRAIT_WFE_FIXUP
+	bool
+	
 config  ARCH_MSM_CORTEX_A5
 	bool
 	select HAVE_HW_BRKPT_RESERVED_RW_ACCESS
@@ -627,6 +633,93 @@ config MACH_MSM8960_LIQUID
 	bool "MSM8960 LIQUID"
 	help
 	  Support for the Qualcomm MSM8960 LIQUID device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120112 jia.jia
+config MACH_ADAMS
+	depends on ARCH_MSM8960
+	bool "ZTE ADAMS"
+	help
+	  Support for the ZTE MSM8960 Adams device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120112 jia.jia
+config MACH_BAKER
+	depends on ARCH_MSM8960
+	bool "ZTE BAKER"
+	help
+	  Support for the ZTE MSM8960 Baker device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120112 jia.jia
+config MACH_CRATER
+	depends on ARCH_MSM8960
+	bool "ZTE CRATER"
+	help
+	  Support for the ZTE MSM8960 Crater device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120214 jia.jia
+config MACH_DANA
+	depends on ARCH_MSM8960
+	bool "ZTE DANA"
+	help
+	  Support for the ZTE MSM8960 Dana device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120312 jia.jia
+config MACH_ELDEN
+	depends on ARCH_MSM8960
+	bool "ZTE ELDEN"
+	help
+	  Support for the ZTE MSM8960 Elden device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120312 jia.jia
+config MACH_FROSTY
+	depends on ARCH_MSM8960
+	bool "ZTE FROSTY"
+	help
+	  Support for the ZTE MSM8960 Frosty device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120319 jia.jia
+config MACH_GORDON
+	depends on ARCH_MSM8960
+	bool "ZTE GORDON"
+	help
+	  Support for the ZTE MSM8960 Gordon device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120320 jia.jia
+config MACH_HAYES
+	depends on ARCH_MSM8960
+	bool "ZTE HAYES"
+	help
+	  Support for the ZTE MSM8960 Hayes device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120424 jia.jia
+config MACH_ILIAMNA
+	depends on ARCH_MSM8960
+	bool "ZTE ILIAMNA"
+	help
+	  Support for the ZTE MSM8960 Iliamna device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120517 jia.jia
+config MACH_JARVIS
+	depends on ARCH_MSM8960
+	bool "ZTE JARVIS"
+	help
+	  Support for the ZTE MSM8960 Jarvis device.
+
+# Added for ZTE BOARD Num by ZTE_BOOT_JIA_20120620 jia.jia
+config MACH_KISKA
+	depends on ARCH_MSM8960
+	bool "ZTE KISKA"
+	help
+	  Support for the ZTE MSM8960 Kiska device.
+
+# Added for SDLOG ZTE_RIL_RJG_20120630
+config ZTE_SDLOG
+        depends on ARCH_MSM
+        depends on !MSM_STACKED_MEMORY
+        default y
+        bool "sdLog"
+        help
+          Support for sdlog.	  
+
 
 config MACH_MSM8930_CDP
 	depends on ARCH_MSM8930
@@ -1937,6 +2030,55 @@ config MSM_FAKE_BATTERY
 		bool "MSM Fake Battery"
 		help
 		 Enables MSM fake battery driver.
+		 
+config ZTE_BATTERY_DANA_4200MV_1650MAH
+		default n
+		bool "ZTE Battery type1"
+		help
+		 Enables ZTE BMS driver.		
+		 
+config ZTE_BATTERY_GORDON_4350MV_1780MAH
+		default n
+		bool "ZTE Battery type2"
+		help
+		 Enables ZTE BMS driver.	
+		 
+config ZTE_BATTERY_ELDEN_4350MV_1735MAH
+		default n
+		bool "ZTE Battery type3"
+		help
+		 Enables ZTE BMS driver.
+		 
+config ZTE_BATTERY_ILIAMNA_4350MV_1735MAH
+		default n
+		bool "ZTE Battery type4"
+		help
+		 Enables ZTE BMS driver.	
+
+config ZTE_BATTERY_FROSTY_4200MV_1900MAH
+		default n
+		bool "ZTE Battery type5"
+		help
+		 Enables ZTE BMS driver. 
+
+config ZTE_BATTERY_HAYES_4350MV_1735MAH
+		default n
+		bool "ZTE Battery type5"
+		help
+		 Enables ZTE BMS driver. 
+		 
+config ZTE_BATTERY_KISKA_4350MV_1735MAH
+		default n
+		bool "ZTE Battery type5"
+		help
+		 Enables ZTE BMS driver. 		 
+
+# CONFIG_ZTE_NON_JEITA_COMPLIANCE
+config ZTE_NON_JEITA_COMPLIANCE
+		default n
+		bool "ZTE non JEITA compliance"
+		help
+		 non JEITA complianc. 
 
 config MSM_QDSP6_APR
 	bool "Audio QDSP6 APR support"
@@ -2026,6 +2168,16 @@ config MSM_RTB_SEPARATE_CPUS
 	  separately. This will guarantee that the last acesses for each cpu
 	  will be logged but there will be fewer entries per cpu
 
+config MSM_EBI_ERP
+	bool "External Bus Interface (EBI) error reporting"
+	help
+	  Say 'Y' here to enable reporting of external bus interface errors to
+	  the kernel log. Information such as the offending address and
+	  transaction type will be logged. This may be useful for debugging
+	  seemingly broken memory accesses.
+
+	  For production builds, you should probably say 'N' here.
+
 config MSM_CACHE_ERP
 	bool "Cache / CPU error reporting"
 	depends on ARCH_MSM_KRAIT
@@ -2038,14 +2190,25 @@ config MSM_CACHE_ERP
 	  For production builds, you should probably say 'N' here.
 
 config MSM_L1_ERR_PANIC
-	bool "Panic on L1 cache / TLB errors"
+	bool "Panic on L1 cache errors"
 	depends on MSM_CACHE_ERP
 	help
-	  To cause the kernel to panic whenever an L1 cache or TLB error is
-	  detected, say 'Y' here. This may be useful as a debugging technique if
-	  general system instability is suspected.
+	To cause the kernel to panic whenever an L1 cache error is detected, say
+	'Y' here. This may be useful as a debugging technique if general system
+	instability is suspected.
 
 	  For production builds, you should probably say 'N' here.
+	  
+config MSM_L1_ERR_LOG
+	bool "Log CPU ERP events to system memory"
+	depends on MSM_CACHE_ERP
+	help
+	  Enable logging CPU ERP events to an area of memory that will be
+	  preserved across a system reset. This may be useful for detecting and
+	  troubleshooting ERP-related system crashes in the field.
+
+	  For production builds, you may want to say 'Y' here.
+	  
 
 config MSM_L2_ERP_PRINT_ACCESS_ERRORS
 	bool "Report L2 master port slave/decode errors in kernel log"
@@ -2103,6 +2266,18 @@ config MSM_L2_ERP_2BIT_PANIC
 
 	  For production builds, it may be acceptable to say 'N' here, since
 	  an uncorrectable error might not necessarily cause further problems.
+	  
+config ZTE_ACPU_OVERCLOCK
+	tristate "zte specify a custom voltage and frequency to overclock"
+	default m
+	help
+	  supply a custom voltage and frequency to acpu overclock	  
+	  
+config ZTE_LONGPOWER_FOR_HW_RESET
+	tristate "zte specify long power pressed for hw reset"
+	default n
+	help
+	  supply a specify long power pressed for hw reset	  
 
 config MSM_CACHE_DUMP
 	bool "Cache dumping support"

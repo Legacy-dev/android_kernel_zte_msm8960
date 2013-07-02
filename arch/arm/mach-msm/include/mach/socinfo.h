@@ -22,6 +22,18 @@
 
 #include <asm/cputype.h>
 #include <asm/mach-types.h>
+
+/*
+ * Support for FTM & RECOVERY mode by ZTE_BOOT_JIA_20120305, jia.jia
+ * ZTE_PLATFORM
+ */
+#ifndef ZTE_BOOT_MODE
+#define ZTE_BOOT_MODE
+#endif
+
+#ifndef PASS_LCD_ID_TO_KERNEL
+#define PASS_LCD_ID_TO_KERNEL
+#endif
 /*
  * SOC version type with major number in the upper 16 bits and minor
  * number in the lower 16 bits.  For example:
@@ -76,6 +88,32 @@ int __init socinfo_init(void) __must_check;
 const int read_msm_cpu_type(void);
 const int get_core_count(void);
 const int cpu_is_krait_v1(void);
+
+/*
+ * Support for FTM & RECOVERY mode by ZTE_BOOT_JIA_20120305, jia.jia
+ * ZTE_PLATFORM
+ */
+#ifdef ZTE_BOOT_MODE
+#define SOCINFO_CMDLINE_BOOTMODE              "androidboot.mode="
+#define SOCINFO_CMDLINE_BOOTMODE_NORMAL       "normal"
+#define SOCINFO_CMDLINE_BOOTMODE_FTM          "ftm"
+#define SOCINFO_CMDLINE_NORMALMODE            "androidboot.mode=normal"
+#define SOCINFO_CMDLINE_FTMMODE               "androidboot.mode=ftm"
+
+void socinfo_set_ftm_flag(int val);
+int socinfo_get_ftm_flag(void);
+#endif
+
+#ifdef PASS_LCD_ID_TO_KERNEL
+#define   LCD_ID_STRING		"lcd_id="
+#endif
+/*
+ * Support for reading board ID by ZTE_BOOT_JIA_20120628, jia.jia
+ * ZTE_PLATFORM
+ */
+#if 1
+void socinfo_sync_sysfs_zte_hw_ver(const char *hw_ver);
+#endif
 
 static inline int cpu_is_msm7x01(void)
 {

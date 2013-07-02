@@ -209,7 +209,7 @@ int32_t msm_sensor_write_exp_gain2(struct msm_sensor_ctrl_t *s_ctrl,
 	s_ctrl->func_tbl->sensor_group_hold_off(s_ctrl);
 	return 0;
 }
-
+#if 0 //deleted by CDZ_CAM_ZTE  (ori from qual)
 int32_t msm_sensor_setting1(struct msm_sensor_ctrl_t *s_ctrl,
 			int update_type, int res)
 {
@@ -219,24 +219,24 @@ int32_t msm_sensor_setting1(struct msm_sensor_ctrl_t *s_ctrl,
 	s_ctrl->func_tbl->sensor_stop_stream(s_ctrl);
 	msleep(30);
 	if (update_type == MSM_SENSOR_REG_INIT) {
-		CDBG("Register INIT\n");
+		pr_err("Register INIT\n");
 		s_ctrl->curr_csi_params = NULL;
 		msm_sensor_enable_debugfs(s_ctrl);
 		msm_sensor_write_init_settings(s_ctrl);
 		csi_config = 0;
 	} else if (update_type == MSM_SENSOR_UPDATE_PERIODIC) {
-		CDBG("PERIODIC : %d\n", res);
+		pr_err("PERIODIC : %d\n", res);
 		msm_sensor_write_conf_array(
 			s_ctrl->sensor_i2c_client,
 			s_ctrl->msm_sensor_reg->mode_settings, res);
 		msleep(30);
 		if (!csi_config) {
 			s_ctrl->curr_csic_params = s_ctrl->csic_params[res];
-			CDBG("CSI config in progress\n");
+			pr_err("CSI config in progress\n");
 			v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
 				NOTIFY_CSIC_CFG,
 				s_ctrl->curr_csic_params);
-			CDBG("CSI config is done\n");
+			pr_err("CSI config is done\n");
 			mb();
 			msleep(30);
 			csi_config = 1;
@@ -292,6 +292,7 @@ int32_t msm_sensor_setting(struct msm_sensor_ctrl_t *s_ctrl,
 	}
 	return rc;
 }
+#endif
 
 int32_t msm_sensor_set_sensor_mode(struct msm_sensor_ctrl_t *s_ctrl,
 	int mode, int res)
@@ -327,7 +328,7 @@ int32_t msm_sensor_mode_init(struct msm_sensor_ctrl_t *s_ctrl,
 	s_ctrl->fps_divider = Q10;
 	s_ctrl->cam_mode = MSM_SENSOR_MODE_INVALID;
 
-	CDBG("%s: %d\n", __func__, __LINE__);
+	pr_err("%s: %d\n", __func__, __LINE__);
 	if (mode != s_ctrl->cam_mode) {
 		s_ctrl->curr_res = MSM_SENSOR_INVALID_RES;
 		s_ctrl->cam_mode = mode;
@@ -357,10 +358,11 @@ int32_t msm_sensor_get_output_info(struct msm_sensor_ctrl_t *s_ctrl,
 }
 
 int32_t msm_sensor_release(struct msm_sensor_ctrl_t *s_ctrl)
-{
+{	
+	#if 0//deleted by CDZ
 	long fps = 0;
 	uint32_t delay = 0;
-	CDBG("%s called\n", __func__);
+	pr_err("%s called\n", __func__);
 	s_ctrl->func_tbl->sensor_stop_stream(s_ctrl);
 	if (s_ctrl->curr_res != MSM_SENSOR_INVALID_RES) {
 		fps = s_ctrl->msm_sensor_reg->
@@ -368,9 +370,10 @@ int32_t msm_sensor_release(struct msm_sensor_ctrl_t *s_ctrl)
 			s_ctrl->curr_frame_length_lines /
 			s_ctrl->curr_line_length_pclk;
 		delay = 1000 / fps;
-		CDBG("%s fps = %ld, delay = %d\n", __func__, fps, delay);
+		pr_err("%s fps = %ld, delay = %d\n", __func__, fps, delay);
 		msleep(delay);
 	}
+	#endif
 	return 0;
 }
 
@@ -398,7 +401,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 		sizeof(struct sensor_cfg_data)))
 		return -EFAULT;
 	mutex_lock(s_ctrl->msm_sensor_mutex);
-	CDBG("msm_sensor_config: cfgtype = %d\n",
+	pr_err("msm_sensor_config: cfgtype = %d\n",
 	cdata.cfgtype);
 		switch (cdata.cfgtype) {
 		case CFG_SET_FPS:
@@ -507,8 +510,15 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 				sizeof(struct sensor_eeprom_data_t)))
 				rc = -EFAULT;
 			break;
-
-		default:
+		/*added by CDZ_CAM_ZTE for AF of yuv sensor*/
+		case CFG_SET_AF:
+            		if (s_ctrl->func_tbl->af_trigger == NULL) {
+				rc = -EFAULT;
+				break;
+			}
+			rc = s_ctrl->func_tbl->af_trigger(s_ctrl);
+			break;
+            	default:
 			rc = -EFAULT;
 			break;
 		}
@@ -517,7 +527,7 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 
 	return rc;
 }
-
+#if 0 //deleted by CDZ_CAM_ZTE  (ori from qual)
 static struct msm_cam_clk_info cam_clk_info[] = {
 	{"cam_clk", MSM_SENSOR_MCLK_24HZ},
 };
@@ -526,7 +536,7 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int32_t rc = 0;
 	struct msm_camera_sensor_info *data = s_ctrl->sensordata;
-	CDBG("%s: %d\n", __func__, __LINE__);
+	pr_err("%s: %d\n", __func__, __LINE__);
 	s_ctrl->reg_ptr = kzalloc(sizeof(struct regulator *)
 			* data->sensor_platform_info->num_vreg, GFP_KERNEL);
 	if (!s_ctrl->reg_ptr) {
@@ -599,10 +609,12 @@ request_gpio_failed:
 	kfree(s_ctrl->reg_ptr);
 	return rc;
 }
-
+#endif
+#if 0 //deleted by CDZ_CAM_ZTE  (ori from qual)
 int32_t msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	struct msm_camera_sensor_info *data = s_ctrl->sensordata;
+	pr_err("%s\n", __func__);
 	CDBG("%s\n", __func__);
 
 	s_ctrl->func_tbl->sensor_stop_stream(s_ctrl);
@@ -624,6 +636,7 @@ int32_t msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	kfree(s_ctrl->reg_ptr);
 	return 0;
 }
+#endif
 
 int32_t msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -639,7 +652,7 @@ int32_t msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
-	CDBG("msm_sensor id: %d\n", chipid);
+	pr_err("msm_sensor id: %d\n", chipid);
 	if (chipid != s_ctrl->sensor_id_info->sensor_id) {
 		pr_err("msm_sensor_match_id chip id doesnot match\n");
 		return -ENODEV;
@@ -647,19 +660,120 @@ int32_t msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	return rc;
 }
 
+ int isp_cam_i2c_rxdata(struct msm_sensor_ctrl_t *s_ctrl,unsigned short saddr,
+                                   unsigned char *txdata,  
+                                   unsigned char *rxdata,
+                                   int length)
+{
+    struct i2c_msg msgs[] = {
+        {
+            .addr  = saddr,
+            .flags = 0,
+            .len   = 5,
+            .buf   = txdata,
+        },
+        {
+            .addr  = saddr,
+            .flags = I2C_M_RD,
+            .len   = length,
+            .buf   = rxdata,
+        },
+    };
+	/* minimum stabilization time */
+	usleep_range(200, 200);
+	//pr_err(" .. length=%d \n",length);
+    if (i2c_transfer(s_ctrl->sensor_i2c_client->client->adapter, msgs, 2) < 0)
+    {
+        pr_err("%s: failed!\n", __func__);
+        return -EIO;
+    }
+	//pr_err("%s: ok !\n", __func__);
+
+    return 0;
+}
+
+int32_t isp_cam_i2c_txdata(struct msm_sensor_ctrl_t *s_ctrl,unsigned short saddr,
+                                       unsigned char *txdata,
+                                       int length)
+{
+    struct i2c_msg msg[] = {
+        {
+            .addr  = saddr,
+            .flags = 0,
+            .len   = length,
+            .buf   = txdata,
+        },
+    };
+
+   
+	/* minimum stabilization time */
+	usleep_range(200, 200);
+    if (i2c_transfer(s_ctrl->sensor_i2c_client->client->adapter, msg, 1) < 0)
+    {
+        pr_err("%s: failed!\n", __func__);
+        return -EIO;
+    }
+
+    return 0;
+}
+
+
+
+int32_t msm_ispcam_match_id(struct msm_sensor_ctrl_t *s_ctrl,
+	                                unsigned char cat, unsigned char byte)
+{
+
+		int rc = 0;
+	   // unsigned char   cmd_senddatatest[8];
+		unsigned char	cmd_senddata[8];
+		unsigned char	cmd_recdata[8] ={0,0,0,0,0,0,0,0};
+		unsigned long	ret;
+		cmd_senddata[0] = 5;
+		cmd_senddata[1] = 1;
+		cmd_senddata[2] = cat;
+		cmd_senddata[3] = byte;
+		cmd_senddata[4] = 4;
+	    pr_err("%s: %d\n", __func__, __LINE__);
+		
+		pr_err("%s: cat = 0x%02x, byte = 0x%02x !\n", __func__, cat, byte);
+
+
+		rc = isp_cam_i2c_rxdata(s_ctrl,0x1f, cmd_senddata, cmd_recdata, 5);
+	    if (rc < 0)
+	    {
+	        pr_err("%s: cat = 0x%x, byte = 0x%x, failed!\n", __func__, cat, byte);
+	    }	
+
+		ret  = cmd_recdata[1]<<24;
+		ret += cmd_recdata[2]<<16;
+		ret += cmd_recdata[3]<<8;
+		ret += cmd_recdata[4];
+		
+		pr_err("cmd_recdata[1]= 0x%x:  cmd_recdata[2]= 0x%x: cmd_recdata[3]= 0x%x:cmd_recdata[4]= 0x%x: \n", 
+			cmd_recdata[1],cmd_recdata[2],cmd_recdata[3], cmd_recdata[4]);
+
+		
+
+		pr_err("%s: %d\n", __func__, __LINE__);
+		
+
+		return rc;
+
+}
+
 struct msm_sensor_ctrl_t *get_sctrl(struct v4l2_subdev *sd)
 {
 	return container_of(sd, struct msm_sensor_ctrl_t, sensor_v4l2_subdev);
 }
-
+#if 0 //deleted by CDZ_CAM_ZTE  (ori from qual)
 int32_t msm_sensor_i2c_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	int rc = 0;
 	struct msm_sensor_ctrl_t *s_ctrl;
-	CDBG("%s_i2c_probe called\n", client->name);
+	pr_err("%s_i2c_probe called\n", client->name);
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		CDBG("i2c_check_functionality failed\n");
+		pr_err("i2c_check_functionality failed\n");
 		rc = -EFAULT;
 		return rc;
 	}
@@ -726,7 +840,7 @@ power_down:
 	s_ctrl->func_tbl->sensor_power_down(s_ctrl);
 	return rc;
 }
-
+#endif
 int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 {
 	int rc = 0;
@@ -764,7 +878,7 @@ int32_t msm_sensor_v4l2_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
 			   enum v4l2_mbus_pixelcode *code)
 {
 	struct msm_sensor_ctrl_t *s_ctrl = get_sctrl(sd);
-
+	pr_err("%s\n", __func__);
 	if ((unsigned int)index >= s_ctrl->sensor_v4l2_subdev_info_size)
 		return -EINVAL;
 
@@ -776,13 +890,15 @@ int32_t msm_sensor_v4l2_s_ctrl(struct v4l2_subdev *sd,
 	struct v4l2_control *ctrl)
 {
 	int rc = -1, i = 0;
-	struct msm_sensor_ctrl_t *s_ctrl =
-		(struct msm_sensor_ctrl_t *) sd->dev_priv;
+	//struct msm_sensor_ctrl_t *s_ctrl =
+		//(struct msm_sensor_ctrl_t *) sd->dev_priv;
+	struct msm_sensor_ctrl_t *s_ctrl = get_sctrl(sd);
+		
 	struct msm_sensor_v4l2_ctrl_info_t *v4l2_ctrl =
 		s_ctrl->msm_sensor_v4l2_ctrl_info;
 
-	CDBG("%s\n", __func__);
-	CDBG("%d\n", ctrl->id);
+	
+	pr_err("cdz  %s  id=%d  , value = %d \n", __func__, ctrl->id,ctrl->value);
 	if (v4l2_ctrl == NULL)
 		return rc;
 
@@ -790,6 +906,13 @@ int32_t msm_sensor_v4l2_s_ctrl(struct v4l2_subdev *sd,
 		if (v4l2_ctrl[i].ctrl_id == ctrl->id) {
 			if (v4l2_ctrl[i].s_v4l2_ctrl != NULL) {
 				rc = v4l2_ctrl[i].s_v4l2_ctrl(
+					s_ctrl,
+					&s_ctrl->msm_sensor_v4l2_ctrl_info[i],
+					ctrl->value);
+			}
+			else if (v4l2_ctrl[i].s_v4l2_ctrl_e != NULL) {
+			 
+             rc = v4l2_ctrl[i].s_v4l2_ctrl_e(
 					s_ctrl,
 					&s_ctrl->msm_sensor_v4l2_ctrl_info[i],
 					ctrl->value);
@@ -805,17 +928,18 @@ int32_t msm_sensor_v4l2_query_ctrl(
 	struct v4l2_subdev *sd, struct v4l2_queryctrl *qctrl)
 {
 	int rc = -1, i = 0;
-	struct msm_sensor_ctrl_t *s_ctrl =
-		(struct msm_sensor_ctrl_t *) sd->dev_priv;
+	//struct msm_sensor_ctrl_t *s_ctrl =
+		//(struct msm_sensor_ctrl_t *) sd->dev_priv;
+	struct msm_sensor_ctrl_t *s_ctrl = get_sctrl(sd);
 
-	CDBG("%s\n", __func__);
-	CDBG("%s id: %d\n", __func__, qctrl->id);
+	pr_err("%s id: %d\n", __func__, qctrl->id);
 
 	if (s_ctrl->msm_sensor_v4l2_ctrl_info == NULL)
 		return rc;
 
 	for (i = 0; i < s_ctrl->num_v4l2_ctrl; i++) {
 		if (s_ctrl->msm_sensor_v4l2_ctrl_info[i].ctrl_id == qctrl->id) {
+			
 			qctrl->minimum =
 				s_ctrl->msm_sensor_v4l2_ctrl_info[i].min;
 			qctrl->maximum =
@@ -833,7 +957,7 @@ int msm_sensor_s_ctrl_by_enum(struct msm_sensor_ctrl_t *s_ctrl,
 		struct msm_sensor_v4l2_ctrl_info_t *ctrl_info, int value)
 {
 	int rc = 0;
-	CDBG("%s enter\n", __func__);
+	pr_err("cdz   %s   value:  %d\n", __func__,value);
 	rc = msm_sensor_write_enum_conf_array(
 		s_ctrl->sensor_i2c_client,
 		ctrl_info->enum_cfg_settings, value);
@@ -855,7 +979,7 @@ DEFINE_SIMPLE_ATTRIBUTE(sensor_debugfs_stream, NULL,
 
 static int msm_sensor_debugfs_test_s(void *data, u64 val)
 {
-	CDBG("val: %llu\n", val);
+	pr_err("val: %llu\n", val);
 	return 0;
 }
 

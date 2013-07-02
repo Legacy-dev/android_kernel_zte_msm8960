@@ -405,6 +405,20 @@ static int msm_mctl_cmd(struct msm_cam_media_controller *p_mctl,
 		}
 		break;
 	}
+#ifdef CONFIG_ISPCAM
+	case MSM_CAM_IOCTL_FLASH_MODE_CTRL: {
+		int flash_led_mode=0;
+		if (copy_from_user(&flash_led_mode, argp, sizeof(flash_led_mode))) {
+			ERR_COPY_FROM_USER();
+			rc = -EFAULT;
+		} else {
+		pr_err("isp flas led mode =%d",flash_led_mode);
+			rc = msm_flash_mode_ctrl(p_mctl->sync.sdata, flash_led_mode);
+		}
+		break;
+	}
+#endif
+	
 	case MSM_CAM_IOCTL_PICT_PP:
 		rc = msm_mctl_set_pp_key(p_mctl, (void __user *)arg);
 		break;

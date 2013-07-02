@@ -175,8 +175,14 @@ static struct footswitch footswitches[] = {
 		"fs_gfx3d",   true, 24576000, true),
 	FOOTSWITCH(FS_GFX2D0, PCOM_FS_GRP_2D,
 		"fs_gfx2d0", false, 24576000, true),
-	FOOTSWITCH(FS_MDP,    PCOM_FS_MDP,
+/**start******20120605*********yichangming******
+ **test*********solve blue screen***************/
+/*	FOOTSWITCH(FS_MDP,    PCOM_FS_MDP,
 		"fs_mdp",    false, 24576000, true),
+*/	
+	FOOTSWITCH(FS_MDP,    PCOM_FS_MDP,
+		"fs_mdp",    false, 200000000, true),
+/**end**/	
 	FOOTSWITCH(FS_MFC,    PCOM_FS_MFC,
 		"fs_mfc",    false, 24576000, true),
 	FOOTSWITCH(FS_ROT,    PCOM_FS_ROTATOR,

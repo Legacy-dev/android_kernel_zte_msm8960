@@ -25,6 +25,42 @@
 
 #include "mdp.h"
 
+/* yuanqiang begin */
+uint8_t VIDEO_CAPABILITY_D_BLOCK_found=false;
+enum EDID_ErrorCodes
+{
+	EDID_OK,
+	EDID_INCORRECT_HEADER,
+	EDID_CHECKSUM_ERROR,
+	EDID_NO_861_EXTENSIONS,
+	EDID_SHORT_DESCRIPTORS_OK,
+	EDID_LONG_DESCRIPTORS_OK,
+	EDID_EXT_TAG_ERROR,
+	EDID_REV_ADDR_ERROR,
+	EDID_V_DESCR_OVERFLOW,
+	EDID_UNKNOWN_TAG_CODE,
+	EDID_NO_DETAILED_DESCRIPTORS,
+	EDID_DDC_BUS_REQ_FAILURE,
+	EDID_DDC_BUS_RELEASE_FAILURE
+};
+#define AUDIO_D_BLOCK       0x01
+#define VIDEO_D_BLOCK       0x02
+#define VENDOR_SPEC_D_BLOCK 0x03
+#define SPKR_ALLOC_D_BLOCK  0x04
+#define USE_EXTENDED_TAG    0x07
+#define COLORIMETRY_D_BLOCK 0x05
+#define HDMI_SIGNATURE_LEN  0x03
+#define CEC_PHYS_ADDR_LEN   0x02
+#define EDID_EXTENSION_TAG  0x02
+#define EDID_REV_THREE      0x03
+#define EDID_DATA_START     0x04
+#define EDID_BLOCK_0        0x00
+#define EDID_BLOCK_2_3      0x01
+#define VIDEO_CAPABILITY_D_BLOCK 0x00
+/* yuanqiang end */
+
+
+
 struct external_common_state_type *external_common_state;
 EXPORT_SYMBOL(external_common_state);
 DEFINE_MUTEX(external_common_state_hpd_mutex);
@@ -393,6 +429,16 @@ static ssize_t hdmi_common_wta_hpd(struct device *dev,
 
 	return ret;
 }
+void mhl_plug_unplug(int state)
+{
+	char *envp[2];
+	envp[0] = state?"MHL_STATE=CONNECT":"MHL_STATE=DISCONNECT";
+	envp[1] = NULL;
+	DEV_INFO("MHL_STATE:%s\n",state?"CONNECT":"DISCONNECT");
+	kobject_uevent_env(external_common_state->uevent_kobj,
+			KOBJ_CHANGE, envp);
+}
+EXPORT_SYMBOL(mhl_plug_unplug);
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
 /*
@@ -1079,7 +1125,49 @@ static void hdmi_edid_extract_audio_data_blocks(const uint8 *in_buf)
 	}
 }
 
+/* yuanqiang begin */
+uint8_t hdmi_edid_extract_VIDEO_CAPABILITY_D_BLOCK(const uint8 *in_buf)
+{
 
+	uint32 offset = 4;
+
+	uint8 len = 0;
+
+	/*edid buffer 1, byte 2 being 4 means no non-DTD/Data block collection
+	  present.
+	  edid buffer 1, byte 2 being 0 menas no non-DTD/DATA block collection
+	  present and no DTD data present.*/
+uint8 type = 7;
+	uint8 sad =0;
+	
+
+	while (offset < 0x80) {
+		uint8 block_len = in_buf[offset] & 0x1F;
+		if ((in_buf[offset] >> 5) == type) {
+			len = block_len;
+			DEV_DBG("EDID: block=%d found @ %d with length=%d\n",
+				type, offset, block_len);
+	
+			sad=1;
+			break;
+		}
+		offset += 1 + block_len;
+	}
+	DEV_WARN("EDID: type=%d block not found in EDID block\n", type);
+	
+	//uint8 len;
+	//const uint8 *sad =0;
+	//const uint8 *sad = hdmi_edid_find_block(in_buf, 7, &len);
+	//uint32 *adb = external_common_state->audio_data_blocks;
+
+	if (sad == 0)
+		VIDEO_CAPABILITY_D_BLOCK_found =false;
+	else
+		VIDEO_CAPABILITY_D_BLOCK_found =true;
+	 printk("return; VIDEO_CAPABILITY_D_BLOCK_found=%d,sad=0x%x\n", VIDEO_CAPABILITY_D_BLOCK_found,sad);
+		return sad;
+}
+/* yuanqiang end */
 static void hdmi_edid_detail_desc(const uint8 *data_buf, uint32 *disp_mode)
 {
 	boolean	aspect_ratio_4_3    = FALSE;
@@ -1382,6 +1470,8 @@ int hdmi_common_read_edid(void)
 	memset(&external_common_state->disp_mode_list, 0,
 		sizeof(external_common_state->disp_mode_list));
 	memset(edid_buf, 0, sizeof(edid_buf));
+	VIDEO_CAPABILITY_D_BLOCK_found=false;
+                     
 
 	status = hdmi_common_read_edid_block(0, edid_buf);
 	if (status || !check_edid_header(edid_buf)) {
@@ -1479,6 +1569,39 @@ int hdmi_common_read_edid(void)
 
 	hdmi_edid_get_display_mode(edid_buf,
 		&external_common_state->disp_mode_list, num_og_cea_blocks);
+	 /* yuanqiang begin */
+		hdmi_edid_extract_VIDEO_CAPABILITY_D_BLOCK(edid_buf+0x80);
+		#if 0
+             if (ErrCode != EDID_SHORT_DESCRIPTORS_OK)
+             {
+                 DEV_DBG("not EDID_SHORT_DESCRIPTORS_OK\n");
+                 return ErrCode;
+             }
+		 #endif
+            
+	if(VIDEO_CAPABILITY_D_BLOCK_found ==true){
+		   //you should set the Quantization Ranges to limited range here(16-235).
+		   
+		   /* qualcomm quantization-range patch;  add begin */
+		   /* limited range */
+		   MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x70, 0x00EB0010); 
+		   MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x74, 0x00EB0010); 
+		   MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x78, 0x00EB0010); 
+		   printk("hdmi_edid_extract_VIDEO_CAPABILITY_D_BLOCK; set to limited range");
+		   /* qualcomm quantization-range patch;  add end */
+		}
+	else{
+	//you should set the data output Quantization Ranges to Full range(0-255).	
+		/* qualcomm quantization-range patch;  add begin */
+		/* full range */		   
+		MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x70, 0x00FF0000); 
+		MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x74, 0x00FF0000); 
+		MDP_OUTP(MDP_BASE + DMA_E_BASE + 0x78, 0x00FF0000); 
+
+		/* qualcomm quantization-range patch;  add end */
+		printk("hdmi_edid_didn't extract_VIDEO_CAPABILITY_D_BLOCK; set to Full range");
+		}
+ 	/* yuanqiang end */
 
 	return 0;
 

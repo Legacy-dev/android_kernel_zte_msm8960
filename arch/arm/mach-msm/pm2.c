@@ -49,6 +49,10 @@
 #include <mach/msm_migrate_pages.h>
 #endif
 
+#ifdef CONFIG_NFC_DEVICES //added by zhang.yu_1 for nfc restart before shut down @120218
+#include <linux/gpio.h>
+#endif
+
 #include "smd_private.h"
 #include "smd_rpcrouter.h"
 #include "acpuclock.h"
@@ -1722,6 +1726,7 @@ static uint32_t restart_reason = 0x776655AA;
 
 static void msm_pm_power_off(void)
 {
+       printk("msm_pm_power_off----\n");
 	msm_rpcrouter_close();
 	msm_proc_comm(PCOM_POWER_DOWN, 0, 0);
 	for (;;)
@@ -1730,6 +1735,7 @@ static void msm_pm_power_off(void)
 
 static void msm_pm_restart(char str, const char *cmd)
 {
+       printk("msm_pm_restart----\n");
 	msm_rpcrouter_close();
 	msm_proc_comm(PCOM_RESET_CHIP, &restart_reason, 0);
 

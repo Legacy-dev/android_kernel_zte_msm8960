@@ -256,6 +256,12 @@ struct mmc_card *mmc_alloc_card(struct mmc_host *host, struct device_type *type)
 	return card;
 }
 
+void mmc_card_host_inserted(struct mmc_card *card,int i)
+{
+  if((card->host->inserted ==0)&&(mmc_card_sd(card)))
+             card->host->inserted = i;
+}
+
 /*
  * Register a new MMC card with the driver model.
  */
@@ -341,6 +347,7 @@ int mmc_add_card(struct mmc_card *card)
 
 	mmc_card_set_present(card);
 
+	mmc_card_host_inserted(card,1);
 	return 0;
 }
 

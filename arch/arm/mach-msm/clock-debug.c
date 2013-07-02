@@ -139,7 +139,7 @@ DEFINE_SIMPLE_ATTRIBUTE(clock_hwcg_fops, clock_debug_hwcg_get,
 			NULL, "%llu\n");
 
 static struct dentry *debugfs_base;
-static u32 debug_suspend;
+static u32 debug_suspend = 1;//ZhengChao set default to dump clock status
 static struct clk_lookup *msm_clocks;
 static size_t num_msm_clocks;
 
@@ -173,6 +173,7 @@ static int clock_debug_print_clock(struct clk *c)
 	size_t ln = 0;
 	char s[128];
 
+	/*ZhengChao:The count reflect the clock open or not*/
 	if (!c || !c->count)
 		return 0;
 

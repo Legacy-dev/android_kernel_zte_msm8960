@@ -670,6 +670,8 @@ void __init smp_init(void)
 	unsigned int cpu;
 
 	/* FIXME: This should be done in userspace --RR */
+	/* Any cleanup work */
+	printk(KERN_INFO "smp_init start\n");
 	for_each_present_cpu(cpu) {
 		if (num_online_cpus() >= setup_max_cpus)
 			break;

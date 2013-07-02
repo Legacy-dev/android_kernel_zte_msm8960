@@ -194,6 +194,13 @@ static int suspend_enter(suspend_state_t state)
 	return error;
 }
 
+#ifndef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME
+#define CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME 1
+#endif
+
+#ifdef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME
+extern void record_sleep_awake_time(bool record_sleep_awake);	//LHX_PM_20110324_01 add code to record how long the APP sleeps or keeps awake 
+#endif
 /**
  *	suspend_devices_and_enter - suspend devices and enter the desired system
  *				    sleep state.
@@ -228,6 +235,10 @@ int suspend_devices_and_enter(suspend_state_t state)
  Resume_devices:
 	suspend_test_start();
 	dpm_resume_end(PMSG_RESUME);
+#ifdef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME
+	pr_info("Resume DONE \n");	//LHX_PM_20110113 add log to indicate resume finish
+	record_sleep_awake_time(false);		//LHX_PM_20110324_01 add code to record how long the APP sleeps or keeps awake 
+#endif
 	suspend_test_finish("resume devices");
 	resume_console();
  Close:

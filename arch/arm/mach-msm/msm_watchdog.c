@@ -95,13 +95,26 @@ static void init_watchdog_work(struct work_struct *work);
 static DECLARE_DELAYED_WORK(dogwork_struct, pet_watchdog_work);
 static DECLARE_WORK(init_dogwork_struct, init_watchdog_work);
 
+volatile int feature_suspend_off = 1;
+volatile int noprintk = 0;
+
 static int msm_watchdog_suspend(struct device *dev)
 {
 	if (!enable)
 		return 0;
 
 	__raw_writel(1, msm_tmr0_base + WDT0_RST);
-	__raw_writel(0, msm_tmr0_base + WDT0_EN);
+if (feature_suspend_off)
+	__raw_writel(0, msm_tmr0_base + WDT0_EN);//tcd
+else {
+//	__raw_writel(1, msm_tmr0_base + WDT0_RST);
+//	__raw_writel(0, msm_tmr0_base + WDT0_EN);//tcd
+//	mb();
+	__raw_writel(1, msm_tmr0_base + WDT0_RST);
+	__raw_writel(1, msm_tmr0_base + WDT0_EN);
+	mb();
+	__raw_writel(WDT_HZ * (25), msm_tmr0_base + WDT0_BITE_TIME);	//tcd 
+}
 	mb();
 	return 0;
 }
@@ -173,7 +186,12 @@ static int wdog_enable_set(const char *val, struct kernel_param *kp)
 			printk(KERN_INFO "MSM Watchdog deactivated.\n");
 		}
 	break;
-
+	case 3:
+		feature_suspend_off = 0;
+	break;
+	case 4:
+		noprintk = 1;
+	break;
 	default:
 		runtime_disable = old_val;
 		ret = -EINVAL;

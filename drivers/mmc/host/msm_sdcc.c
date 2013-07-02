@@ -45,6 +45,7 @@
 #include <linux/slab.h>
 #include <linux/pm_qos_params.h>
 
+
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
 #include <asm/sizes.h>
@@ -57,13 +58,39 @@
 #include <mach/mpm.h>
 #include <mach/msm_bus.h>
 
+//ruanmeisi
+#include <linux/proc_fs.h>
+
 #include "msm_sdcc.h"
 #include "msm_sdcc_dml.h"
 
 #define DRIVER_NAME "msm-sdcc"
 
 #define DBG(host, fmt, args...)	\
-	pr_debug("%s: %s: " fmt "\n", mmc_hostname(host->mmc), __func__ , args)
+		do {								\
+			if(mmc_debug)							\
+				printk(KERN_ERR"%s: %s: " fmt "\n", mmc_hostname(host->mmc), __func__ , args) ;	\
+			}while(0)	
+
+static struct proc_dir_entry * d_entry;
+int mmc_debug = 0;
+
+static int is_sdcard_slot(int id)
+{
+	
+	if (id == 1 || id==3) {
+		return 1;
+	}
+	return 0;
+}
+
+int queue_redetect_work(struct work_struct *work);
+void mmc_redetect_card(struct mmc_host *host);
+//ruanmeisi_20100702
+static int create_mmc_work_queue(struct msmsdcc_host *host);
+static int destroy_mmc_work_queue(struct msmsdcc_host *host);
+static void msmsdcc_queue_delay_request_done(struct msmsdcc_host *host, struct mmc_request *mrq);
+//end
 
 #define IRQ_DEBUG 0
 #define SPS_SDCC_PRODUCER_PIPE_INDEX	1
@@ -107,6 +134,8 @@ static const u32 cmd19_tuning_block[16] = {
 	0xF0FFF0FF, 0x3CCCFC0F, 0xCFCC33CC, 0xEEFFEFFF,
 	0xFDFFFDFF, 0xFFBFFFDF, 0xFFF7FFBB, 0xDE7B7FF7
 };
+
+
 
 #if IRQ_DEBUG == 1
 static char *irq_status_bits[] = { "cmdcrcfail", "datcrcfail", "cmdtimeout",
@@ -343,8 +372,8 @@ msmsdcc_request_end(struct msmsdcc_host *host, struct mmc_request *mrq)
 
 	if (mrq->data)
 		mrq->data->bytes_xfered = host->curr.data_xfered;
-	if (mrq->cmd->error == -ETIMEDOUT)
-		mdelay(5);
+	//if (mrq->cmd->error == -ETIMEDOUT)
+		//mdelay(5);
 
 	/* Clear current request information as current request has ended */
 	memset(&host->curr, 0, sizeof(struct msmsdcc_curr_req));
@@ -354,6 +383,9 @@ msmsdcc_request_end(struct msmsdcc_host *host, struct mmc_request *mrq)
 	 * back into the driver...
 	 */
 	spin_unlock(&host->lock);
+	if (mrq->cmd->error == -ETIMEDOUT) {
+		msmsdcc_queue_delay_request_done(host, mrq);
+	} else
 	mmc_request_done(host->mmc, mrq);
 	spin_lock(&host->lock);
 
@@ -363,6 +395,12 @@ msmsdcc_request_end(struct msmsdcc_host *host, struct mmc_request *mrq)
 static void
 msmsdcc_stop_data(struct msmsdcc_host *host)
 {
+	//ruanmeisi_20100510
+	if (is_sdcard_slot(host->pdev_id)) {
+		memset(&host->pio, 0, sizeof(host->pio));
+	}
+	//end
+
 	host->curr.data = NULL;
 	host->curr.got_dataend = 0;
 	host->curr.wait_for_auto_prog_done = 0;
@@ -1005,6 +1043,7 @@ msmsdcc_start_command_deferred(struct msmsdcc_host *host,
 	DBG(host, "op %02x arg %08x flags %08x\n",
 	    cmd->opcode, cmd->arg, cmd->flags);
 
+
 	*c |= (cmd->opcode | MCI_CPSM_ENABLE);
 
 	if (cmd->flags & MMC_RSP_PRESENT) {
@@ -1451,6 +1490,62 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 		if (!(status & (MCI_TXFIFOHALFEMPTY | MCI_TXFIFOEMPTY
 				| MCI_RXDATAAVLBL)))
 			break;
+		//ruanmeisi_20100510
+		if(NULL == host->curr.mrq) {
+			pr_info("[rms:sd]:%s pio host->curr.mrq is null\n", 
+				mmc_hostname(host->mmc));
+
+			if(status & MCI_RXACTIVE) {
+				int read_cnt = 0;
+				while(readl_relaxed(base+MMCISTATUS) & MCI_RXDATAAVLBL) {
+					readl_relaxed(base+MMCIFIFO+(1%MCI_FIFOSIZE));
+					if((read_cnt++) > MCI_FIFOSIZE)
+						break;
+				}
+				writel_relaxed(0, base + MMCIMASK1);
+			}
+
+			if(status & MCI_TXACTIVE) {
+				writel_relaxed(0, base + MMCIMASK1);
+			}
+			spin_unlock(&host->lock);
+			return IRQ_HANDLED;
+		}
+		//ZTE_WIFI_OYHQ_20100714 wifi froyo upgrade begin
+		//ZTE_WIFI_HP_019 
+		//hp merge htc patch for pio.sg NULL 
+		//here we catch the pio.sg==NULL, and stop current transaction, 
+		//let app to handle the error
+		if(host->pio.sg_miter.__sg== NULL) {
+			pr_info("[hp@wifi]:%s pio scatter list is null\n", 
+					mmc_hostname(host->mmc));
+
+			if(status & MCI_RXACTIVE) {
+				int read_cnt = 0;
+				while(readl_relaxed(base+MMCISTATUS) & MCI_RXDATAAVLBL) {
+					readl_relaxed(base+MMCIFIFO+(1%MCI_FIFOSIZE));
+					if((read_cnt++) > MCI_FIFOSIZE)
+						break;
+				}
+				writel_relaxed(MCI_RXDATAAVLBLMASK, base + MMCIMASK1);
+			}
+
+			if(status & MCI_TXACTIVE) {
+				struct mmc_request *mrq;
+
+				writel_relaxed(0, base + MMCIMASK1);
+				mrq = host->curr.mrq;
+				mrq->data->error = 1;
+				if(mrq->done)
+					mrq->done(mrq);
+			}
+			spin_unlock(&host->lock);
+			return IRQ_HANDLED;
+
+		}
+		//ZTE_WIFI_HP_019 end 
+		//ZTE_WIFI_OYHQ_20100714 wifi froyo upgrade end
+
 
 		if (!msmsdcc_sg_next(host, &buffer, &remain))
 			break;
@@ -1628,7 +1723,7 @@ msmsdcc_irq(int irq, void *dev_id)
 	int			timer = 0;
 
 	spin_lock(&host->lock);
-
+	
 	do {
 		struct mmc_command *cmd;
 		struct mmc_data *data;
@@ -1673,7 +1768,7 @@ msmsdcc_irq(int irq, void *dev_id)
 		}
 
 		status = readl_relaxed(host->base + MMCISTATUS);
-
+		
 		if (((readl_relaxed(host->base + MMCIMASK0) & status) &
 						(~(MCI_IRQ_PIO))) == 0)
 			break;
@@ -1848,6 +1943,7 @@ msmsdcc_request_start(struct msmsdcc_host *host, struct mmc_request *mrq)
 	} else {
 		msmsdcc_start_command(host, mrq->cmd, 0);
 	}
+
 }
 
 static void
@@ -2149,6 +2245,15 @@ static int msmsdcc_setup_vreg(struct msmsdcc_host *host, bool enable)
 	struct msm_mmc_slot_reg_data *curr_slot;
 	struct msm_mmc_reg_data *curr_vdd_reg, *curr_vccq_reg, *curr_vddp_reg;
 	struct msm_mmc_reg_data *vreg_table[3];
+ 
+ //jzq add for 20120704 for P896A10 start
+#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
+   #ifdef CONFIG_MMC_ZTE_USE_HIGH_SD_SLOT_HW
+       if((host->pdev_id==3)&&(!enable))
+	   	goto out;
+   #endif
+#endif
+ //jzq add for 20120704 for P896A10 end
 
 	curr_slot = host->plat->vreg_data;
 	if (!curr_slot)
@@ -2775,12 +2880,15 @@ msmsdcc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	spin_lock_irqsave(&host->lock, flags);
 	if (!host->sdcc_irq_disabled) {
-		spin_unlock_irqrestore(&host->lock, flags);
-		disable_irq(host->core_irqres->start);
-		spin_lock_irqsave(&host->lock, flags);
+		disable_irq_nosync(host->core_irqres->start);
+
 		host->sdcc_irq_disabled = 1;
+		
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
+
+	/* Make sure sdcc core irq is synchronized */
+       synchronize_irq(host->core_irqres->start);
 
 	pwr = msmsdcc_setup_pwr(host, ios);
 
@@ -4197,6 +4305,21 @@ show_polling(struct device *dev, struct device_attribute *attr, char *buf)
 }
 
 static ssize_t
+show_inserted(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int inserted;
+	unsigned long flags;
+
+	spin_lock_irqsave(&host->lock, flags);
+	inserted = mmc->inserted;
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", inserted);
+}
+
+static ssize_t
 store_polling(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
 {
@@ -4220,6 +4343,83 @@ store_polling(struct device *dev, struct device_attribute *attr,
 	spin_unlock_irqrestore(&host->lock, flags);
 	return count;
 }
+
+void msmsdcc_mmc_redetect(struct work_struct *work)
+{
+	struct msmsdcc_host *msmsdcchost =
+		container_of(work, struct msmsdcc_host, redetect);
+	struct mmc_host *host = msmsdcchost->mmc; 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	if (msmsdcchost->polling_enabled) {
+		unsigned long flags;
+		spin_lock_irqsave(&host->lock, flags);
+		msmsdcchost->mmc->caps |= MMC_CAP_NEEDS_POLL;
+		spin_unlock_irqrestore(&host->lock, flags);
+	}
+#endif
+	mmc_redetect_card(host);
+	return ;
+}
+
+
+#if 0
+static ssize_t
+show_highspeed(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int poll;
+	unsigned long flags;
+
+	spin_lock_irqsave(&host->lock, flags);
+	poll = !!(mmc->caps & MMC_CAP_SD_HIGHSPEED);
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", poll);
+}
+
+static ssize_t
+set_highspeed(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int value;
+	unsigned long flags;
+
+	sscanf(buf, "%d", &value);
+
+	spin_lock_irqsave(&host->lock, flags);
+	if (value) {
+		mmc->caps |= MMC_CAP_SD_HIGHSPEED;
+		mmc_detect_change(host->mmc, 0);
+	} else {
+		mmc->caps &= ~MMC_CAP_SD_HIGHSPEED;
+	}
+	spin_unlock_irqrestore(&host->lock, flags);
+	return count;
+}
+
+
+static ssize_t
+set_redetect(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	queue_redetect_work(&(host->redetect));
+	return count;
+}
+
+static DEVICE_ATTR(redetect, S_IRUGO | S_IWUSR,
+		NULL, set_redetect);
+static DEVICE_ATTR(highspeed, S_IRUGO | S_IWUSR,
+		show_highspeed, set_highspeed);
+#endif		
+
+
+//static DEVICE_ATTR(polling, S_IRUGO | S_IWUSR,
+	//	show_polling, set_polling);
 
 static ssize_t
 show_sdcc_to_mem_max_bus_bw(struct device *dev, struct device_attribute *attr,
@@ -4250,6 +4450,7 @@ store_sdcc_to_mem_max_bus_bw(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void msmsdcc_early_suspend(struct early_suspend *h)
 {
@@ -4276,6 +4477,45 @@ static void msmsdcc_late_resume(struct early_suspend *h)
 	}
 };
 #endif
+
+//ruanmeisi
+static void
+polling_timer_check_status(unsigned long data)
+{
+	struct msmsdcc_host *host = (struct msmsdcc_host*) data;
+	if (NULL == host) {
+		printk(KERN_ERR"mmc: %s %d error\n", __FUNCTION__, __LINE__);
+		return ;
+	}
+	msmsdcc_check_status(data);
+	mod_timer(&host->polling_timer, jiffies + 2 * HZ);
+	
+	return ;
+}
+static
+int register_polling_timer(struct msmsdcc_host *host)
+{
+	if (NULL == host) {
+		printk(KERN_ERR"mmc: %s %d error\n", __FUNCTION__, __LINE__);
+		return -1;
+	}
+	init_timer(&host->polling_timer);
+	host->polling_timer.data = (unsigned long)host;
+	host->polling_timer.function = polling_timer_check_status;
+	mod_timer(&host->polling_timer, jiffies + 2 * HZ);
+	return 0;
+}
+static
+int unregister_polling_timer(struct msmsdcc_host *host)
+{
+	if (NULL == host) {
+		printk(KERN_ERR"mmc: %s %d error\n", __FUNCTION__, __LINE__);
+		return -1;
+	}
+	del_timer_sync(&host->polling_timer);
+	return 0;
+}
+//end
 
 static void msmsdcc_print_regs(const char *name, void __iomem *base,
 			       u32 phys_base, unsigned int no_of_regs)
@@ -4326,6 +4566,14 @@ static void msmsdcc_dump_sdcc_state(struct msmsdcc_host *host)
 						   16);
 			pr_info("%s: SPS mode: busy=%d\n",
 				mmc_hostname(host->mmc), host->sps.busy);
+
+			//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+			//Print the BAM Registers also
+			sps_get_bam_debug_info(host->sps.bam_handle, 3);
+			sps_get_bam_debug_info(host->sps.bam_handle, 4);
+			sps_get_bam_debug_info(host->sps.bam_handle, 1);
+			//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end
+
 		}
 
 		pr_info("%s: xfer_size=%d, data_xfered=%d, xfer_remain=%d\n",
@@ -4361,6 +4609,7 @@ static void msmsdcc_req_tout_timer_hdlr(unsigned long data)
 		pr_info("%s: CMD%d: Request timeout\n", mmc_hostname(host->mmc),
 				mrq->cmd->opcode);
 		msmsdcc_dump_sdcc_state(host);
+
 
 		if (!mrq->cmd->error)
 			mrq->cmd->error = -ETIMEDOUT;
@@ -4849,6 +5098,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	 */
 	disable_irq(core_irqres->start);
 	host->sdcc_irq_disabled = 1;
+	
 
 	if (plat->sdiowakeup_irq) {
 		wake_lock_init(&host->sdio_wlock, WAKE_LOCK_SUSPEND,
@@ -4959,6 +5209,15 @@ msmsdcc_probe(struct platform_device *pdev)
 	register_early_suspend(&host->early_suspend);
 #endif
 
+
+	host->enable_polling_timer = plat->enable_polling_timer;
+		
+	//ruanmeisi
+	if (host->enable_polling_timer) {
+		register_polling_timer(host);
+	}
+	//end
+
 	pr_info("%s: Qualcomm MSM SDCC-core at 0x%016llx irq %d,%d dma %d"
 		" dmacrcri %d\n", mmc_hostname(mmc),
 		(unsigned long long)core_memres->start,
@@ -4971,7 +5230,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	pr_info("%s: 4 bit data mode %s\n", mmc_hostname(mmc),
 	       (mmc->caps & MMC_CAP_4_BIT_DATA ? "enabled" : "disabled"));
 	pr_info("%s: polling status mode %s\n", mmc_hostname(mmc),
-	       (mmc->caps & MMC_CAP_NEEDS_POLL ? "enabled" : "disabled"));
+	       (host->enable_polling_timer? "enabled" : "disabled")); // ZTE
 	pr_info("%s: MMC clock %u -> %u Hz, PCLK %u Hz\n",
 	       mmc_hostname(mmc), msmsdcc_get_min_sup_clk_rate(host),
 		msmsdcc_get_max_sup_clk_rate(host), host->pclk_rate);
@@ -4997,7 +5256,8 @@ msmsdcc_probe(struct platform_device *pdev)
 	msmsdcc_dbg_createhost(host);
 #endif
 
-	host->max_bus_bw.show = show_sdcc_to_mem_max_bus_bw;
+
+      host->max_bus_bw.show = show_sdcc_to_mem_max_bus_bw;
 	host->max_bus_bw.store = store_sdcc_to_mem_max_bus_bw;
 	sysfs_attr_init(&host->max_bus_bw.attr);
 	host->max_bus_bw.attr.name = "max_bus_bw";
@@ -5005,8 +5265,16 @@ msmsdcc_probe(struct platform_device *pdev)
 	ret = device_create_file(&pdev->dev, &host->max_bus_bw);
 	if (ret)
 		goto platform_irq_free;
+   
 
-	if (!plat->status_irq) {
+      
+        //ruanmeisi
+	INIT_WORK(&host->redetect, msmsdcc_mmc_redetect);
+
+	//ruanmeisi_20100618
+	create_mmc_work_queue(host);
+	//end
+       if (!plat->status_irq) {
 		host->polling.show = show_polling;
 		host->polling.store = store_polling;
 		sysfs_attr_init(&host->polling.attr);
@@ -5016,9 +5284,21 @@ msmsdcc_probe(struct platform_device *pdev)
 		if (ret)
 			goto remove_max_bus_bw_file;
 	}
+		//jzq add  for test
+	if (host->pdev_id==3) {
+		host->inserted.show =show_inserted;
+		host->inserted.store =NULL;
+		sysfs_attr_init(&host->inserted.attr);
+		host->inserted.attr.name = "inserted";
+		host->inserted.attr.mode = S_IRUGO | S_IWUSR;
+		ret = device_create_file(&pdev->dev, &host->inserted);
+		if (ret)
+			goto remove_max_bus_bw_file;
+		}
+	//jzq add  for end   
 	return 0;
-
- remove_max_bus_bw_file:
+	
+remove_max_bus_bw_file:
 	device_remove_file(&pdev->dev, &host->max_bus_bw);
  platform_irq_free:
 	del_timer_sync(&host->req_tout_timer);
@@ -5092,13 +5372,25 @@ static int msmsdcc_remove(struct platform_device *pdev)
 		pm_runtime_resume(&(pdev)->dev);
 
 	host = mmc_priv(mmc);
+	//ruanmeisi
+	if (host->enable_polling_timer) {
+		unregister_polling_timer(host);
+	}
+	//end
 
 	DBG(host, "Removing SDCC device = %d\n", pdev->id);
 	plat = host->plat;
 
-	device_remove_file(&pdev->dev, &host->max_bus_bw);
+	//ruanmeisi_20100618
+	destroy_mmc_work_queue(host);
+	//end
+       device_remove_file(&pdev->dev, &host->max_bus_bw);
 	if (!plat->status_irq)
 		device_remove_file(&pdev->dev, &host->polling);
+       //jzq add for test begin
+	if (host->pdev_id==3)
+		device_remove_file(&pdev->dev, &host->inserted);
+	 //jzq add for test end
 
 	del_timer_sync(&host->req_tout_timer);
 	tasklet_kill(&host->dma_tlet);
@@ -5219,6 +5511,7 @@ int msmsdcc_sdio_al_lpm(struct mmc_host *mmc, bool enable)
 			mb();
 			enable_irq(host->core_irqres->start);
 			host->sdcc_irq_disabled = 0;
+
 		}
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
@@ -5478,8 +5771,64 @@ static struct platform_driver msmsdcc_driver = {
 	},
 };
 
+//ruanmeisi_091224 proc interface
+static int msm_sdcc_read_proc(
+        char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int len = 0;
+	len = sprintf(page, "%s\n",
+                      !!mmc_debug == 1?"on":"off");
+	return len;
+
+}
+
+static int msm_sdcc_write_proc(struct file *file, const char __user *buffer,
+			     unsigned long count, void *data)
+{
+	char tmp[16] = {0};
+	int len = 0;
+	len = count;
+	if (count > sizeof(tmp)) {
+		len = sizeof(tmp) - 1;
+	}
+	if(copy_from_user(tmp, buffer, len))
+                return -EFAULT;
+	if (strstr(tmp, "on")) {
+		mmc_debug = 1;
+	} else if (strstr(tmp, "off")) {
+		mmc_debug = 0;
+	}
+	return count;
+
+}
+
+
+static void
+init_mmc_proc(void)
+{
+	d_entry = create_proc_entry("msm_sdcc",
+				    0, NULL);
+        if (d_entry) {
+                d_entry->read_proc = msm_sdcc_read_proc;
+                d_entry->write_proc = msm_sdcc_write_proc;
+                d_entry->data = NULL;
+        }
+
+}
+
+static void
+deinit_mmc_proc(void)
+{
+	if (NULL != d_entry) {
+		remove_proc_entry("msm_sdcc", NULL);
+		d_entry = NULL;
+	}
+}
+//end
+
 static int __init msmsdcc_init(void)
 {
+
 #if defined(CONFIG_DEBUG_FS)
 	int ret = 0;
 	ret = msmsdcc_dbg_init();
@@ -5488,12 +5837,23 @@ static int __init msmsdcc_init(void)
 		return ret;
 	}
 #endif
+
+	//ruanmeisi_091224 proc interface
+	init_mmc_proc();
+	//end
+
 	return platform_driver_register(&msmsdcc_driver);
 }
 
 static void __exit msmsdcc_exit(void)
 {
+
+	//ruanmeisi_091224 proc interface
+	deinit_mmc_proc();
+	//end
+
 	platform_driver_unregister(&msmsdcc_driver);
+
 
 #if defined(CONFIG_DEBUG_FS)
 	debugfs_remove(debugfs_file);
@@ -5515,6 +5875,8 @@ msmsdcc_dbg_state_open(struct inode *inode, struct file *file)
 	file->private_data = inode->i_private;
 	return 0;
 }
+
+
 
 static ssize_t
 msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
@@ -5550,10 +5912,12 @@ msmsdcc_dbg_state_read(struct file *file, char __user *ubuf,
 	return simple_read_from_buffer(ubuf, count, ppos, buf, i);
 }
 
+
 static const struct file_operations msmsdcc_dbg_state_ops = {
 	.read	= msmsdcc_dbg_state_read,
 	.open	= msmsdcc_dbg_state_open,
 };
+
 
 static void msmsdcc_dbg_createhost(struct msmsdcc_host *host)
 {
@@ -5578,3 +5942,63 @@ static int __init msmsdcc_dbg_init(void)
 	return 0;
 }
 #endif
+//ruanmeisi_20100618
+static void
+msmsdcc_queue_delay_request_done(struct msmsdcc_host *host, struct mmc_request *mrq)
+{
+	if (NULL == host || NULL == mrq) {
+		printk(KERN_ERR"rms:%s: %d error\n", mmc_hostname(host->mmc), __LINE__);
+		return ;
+	}
+
+	if (NULL == host->workqueue) {
+		mdelay(5);
+		mmc_request_done(host->mmc, mrq);
+		return ;
+	}
+	host->timeout_mrq = mrq;
+	queue_delayed_work(host->workqueue, &host->cmd_timeout_work, msecs_to_jiffies(5));
+	return ;
+}
+static void msmsdcc_cmd_timeout(struct work_struct *work)
+{
+	struct msmsdcc_host *host =
+		container_of(work, struct msmsdcc_host, cmd_timeout_work.work);
+	struct mmc_request *mrq= host->timeout_mrq;
+	host->timeout_mrq = NULL;
+	mmc_request_done(host->mmc, mrq);
+	return ;
+}
+
+static int create_mmc_work_queue(struct msmsdcc_host *host)
+{
+	char name[36];
+	if (NULL == host) {
+		return  -1;
+	}
+	snprintf(name, sizeof(name), "mmcsdcc_host%d", host->pdev_id);
+	host->workqueue = create_singlethread_workqueue(name);
+	if (NULL == host->workqueue) {
+		return -1;
+	}
+	
+
+
+	INIT_DELAYED_WORK(&host->cmd_timeout_work, msmsdcc_cmd_timeout);
+	host->timeout_mrq = NULL;
+	
+	return 0;
+}
+
+
+
+static int destroy_mmc_work_queue(struct msmsdcc_host *host)
+{
+	if (NULL == host || NULL == host->workqueue) {
+		return  0;
+	}
+	destroy_workqueue(host->workqueue);
+	host->workqueue = NULL;
+	return 0;
+
+}

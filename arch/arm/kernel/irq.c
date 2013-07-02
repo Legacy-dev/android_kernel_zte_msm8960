@@ -52,6 +52,31 @@
 #endif
 
 unsigned long irq_err_count;
+//ZhengChao add for print irq info 
+void print_irq_info(int i)
+{
+
+	struct irqaction * action;
+	unsigned long flags;
+	if (i < NR_IRQS) {
+			raw_spin_lock_irqsave(&irq_desc[i].lock, flags);
+			action = irq_desc[i].action;
+			if (!action)
+				goto unlock;
+			printk(KERN_ERR "[IRQ] IRQ-NUM=%d\n",i);
+			printk(KERN_ERR "      chip->name=%10s\n",irq_desc[i].irq_data.chip->name ? : "-");
+			printk(KERN_ERR "      action->name=%s\n",action->name);
+
+			for (action = action->next; action; action = action->next)
+				printk(KERN_ERR "      action->name=%s\n",action->name);
+	
+	unlock:
+			raw_spin_unlock_irqrestore(&irq_desc[i].lock, flags);
+		} else if (i == NR_IRQS) {
+			printk(KERN_ERR "[IRQ] error in dump irq info\n");
+		}
+
+}
 
 int arch_show_interrupts(struct seq_file *p, int prec)
 {

@@ -21,6 +21,7 @@
 #include <linux/delay.h>
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/misc.h>
+#include <linux/seq_file.h>
 
 /* PON CTRL 1 register */
 #define REG_PM8XXX_PON_CTRL_1			0x01C
@@ -125,6 +126,8 @@
 
 /* Stay on configuration */
 #define PM8XXX_STAY_ON_CFG			0x92
+
+#define PM8XXX_STAY_OFF_CFG			0x91
 
 /* GPIO UART MUX CTRL registers */
 #define REG_PM8XXX_GPIO_MUX_CTRL		0x1CC
@@ -439,9 +442,43 @@ read_write_err:
 	return rc;
 }
 
+ int pm8xxx_disable_stay_on(void)
+{
+	struct pm8xxx_misc_chip *chip;
+	int rc = 0;
+
+	/* Loop over all attached PMICs and call specific functions for them. */
+	list_for_each_entry(chip, &pm8xxx_misc_chips, link) {
+		switch (chip->version) {
+		case PM8XXX_VERSION_8018:
+		case PM8XXX_VERSION_8058:
+		case PM8XXX_VERSION_8921:
+			rc = pm8xxx_writeb(chip->dev->parent,
+				REG_PM8XXX_GP_TEST_1, PM8XXX_STAY_OFF_CFG);
+			pr_err("pm8xxx_disable_stay_on is ok\n");
+			break;
+		default:
+			pr_err("pm8xxx_disable_stay_on,version=%d\n",chip->version);
+			/* stay on not supported */
+			break;
+		}
+		if (rc) {
+			pr_err("stay_on disable failed failed, rc=%d\n", rc);
+			break;
+		}
+	}
+
+	return rc;
+}
+
+extern int pm8xxx_dump_mpps(struct seq_file *m, int curr_len, char *gpio_buffer);
 static int __pm8921_reset_pwr_off(struct pm8xxx_misc_chip *chip, int reset)
 {
 	int rc;
+	/* When shutting down, disable stay-on Feature. add by stone 2012_0309*/
+	if (!reset) {
+		pm8xxx_disable_stay_on();
+	}
 
 	/* Enable SMPL if resetting is desired. */
 	rc = pm8xxx_misc_masked_write(chip, REG_PM8921_SLEEP_CTRL,
@@ -1108,6 +1145,17 @@ static int __devinit pm8xxx_misc_probe(struct platform_device *pdev)
 	spin_unlock_irqrestore(&pm8xxx_misc_chips_lock, flags);
 
 	platform_set_drvdata(pdev, chip);
+
+#if 1
+	pm8xxx_hard_reset_config(PM8XXX_RESTART_ON_HARD_RESET);
+
+       pm8xxx_smpl_set_delay(PM8XXX_SMPL_DELAY_2p0);
+
+	pm8xxx_smpl_control(1);
+
+//       pm8xxx_stay_on();
+	   
+#endif
 
 	return rc;
 

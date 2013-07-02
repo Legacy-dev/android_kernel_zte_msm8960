@@ -75,6 +75,8 @@ extern struct sx150x_platform_data msm8960_sx150x_data[];
 extern struct msm_camera_board_info msm8960_camera_board_info;
 extern unsigned char hdmi_is_primary;
 
+extern struct msm_camera_board_info msm8960_isp_camera_board_info;
+
 void msm8960_init_cam(void);
 void msm8960_init_fb(void);
 void msm8960_init_pmic(void);
@@ -90,6 +92,21 @@ uint32_t msm_rpm_get_swfi_latency(void);
 		(socinfo_get_platform_subtype() == 1) \
 	)
 
+#ifdef CONFIG_INPUT_TOUCHSCREEN
+	void msm8960_ts_init(int bus);
+#endif
+
+
 #define MSM_8960_GSBI4_QUP_I2C_BUS_ID 4
 #define MSM_8960_GSBI3_QUP_I2C_BUS_ID 3
 #define MSM_8960_GSBI10_QUP_I2C_BUS_ID 10
+#ifndef CONFIG_MSM_DSPS
+#define MSM_8960_GSBI12_QUP_I2C_BUS_ID 12
+#endif
+#ifdef CONFIG_MHL_Sii8334
+#define MSM_8960_GSBI5_QUP_I2C_BUS_ID 5
+#endif
+//wt isp mbg 201204-19
+#if defined(CONFIG_ISPCAM) || defined(CONFIG_FLSH_ADP1650)
+#define MSM_8960_GSBI7_QUP_I2C_BUS_ID 7
+#endif

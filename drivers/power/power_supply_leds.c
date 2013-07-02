@@ -18,6 +18,8 @@
 
 /* Battery specific LEDs triggers. */
 
+#define ZTE_LED_CONTROL_BY_APP
+
 static void power_supply_update_bat_leds(struct power_supply *psy)
 {
 	union power_supply_propval status;
@@ -27,7 +29,11 @@ static void power_supply_update_bat_leds(struct power_supply *psy)
 	if (psy->get_property(psy, POWER_SUPPLY_PROP_STATUS, &status))
 		return;
 
-	dev_dbg(psy->dev, "%s %d\n", __func__, status.intval);
+	dev_info(psy->dev, "slf %s %d\n", __func__, status.intval);
+	
+#ifdef ZTE_LED_CONTROL_BY_APP
+       return;
+#endif
 
 	switch (status.intval) {
 	case POWER_SUPPLY_STATUS_FULL:

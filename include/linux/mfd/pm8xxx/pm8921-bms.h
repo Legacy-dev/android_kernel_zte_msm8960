@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,11 +35,10 @@ struct single_row_lut {
 };
 
 /**
- * struct sf_lut -
+ * struct pc_sf_lut -
  * @rows:	number of percent charge entries should be <= PC_CC_ROWS
  * @cols:	number of charge cycle entries should be <= PC_CC_COLS
- * @row_entries:	the charge cycles/temperature at which sf data
- *			is available in the table.
+ * @cycles:	the charge cycles at which sf data is available in the table.
  *		The charge cycles must be in increasing order from 0 to rows.
  * @percent:	the percent charge at which sf data is available in the table
  *		The  percentcharge must be in decreasing order from 0 to cols.
@@ -52,6 +51,8 @@ struct sf_lut {
 	int percent[PC_CC_ROWS];
 	int sf[PC_CC_ROWS][PC_CC_COLS];
 };
+
+
 
 /**
  * struct pc_temp_ocv_lut -
@@ -75,21 +76,16 @@ struct pc_temp_ocv_lut {
  * struct pm8921_bms_battery_data -
  * @fcc:		full charge capacity (mAmpHour)
  * @fcc_temp_lut:	table to get fcc at a given temp
+ * @fcc_sf_lut:		table to get fcc scaling factor for given charge cycles
  * @pc_temp_ocv_lut:	table to get percent charge given batt temp and cycles
  * @pc_sf_lut:		table to get percent charge scaling factor given cycles
  *			and percent charge
- * @rbatt_sf_lut:	table to get battery resistance scaling factor given
- *			temperature and percent charge
- * @default_rbatt_mohm:	the default value of battery resistance to use when
- *			readings from bms are not available.
- * @delta_rbatt_mohm:	the resistance to be added towards lower soc to
- *			compensate for battery capacitance.
  */
 struct pm8921_bms_battery_data {
-	unsigned int		fcc;
-	struct single_row_lut	*fcc_temp_lut;
-	struct single_row_lut	*fcc_sf_lut;
-	struct pc_temp_ocv_lut	*pc_temp_ocv_lut;
+	unsigned int			fcc;
+	struct single_row_lut		*fcc_temp_lut;
+	struct single_row_lut		*fcc_sf_lut;
+	struct pc_temp_ocv_lut		*pc_temp_ocv_lut;
 	struct sf_lut		*pc_sf_lut;
 	struct sf_lut		*rbatt_sf_lut;
 	int			default_rbatt_mohm;
@@ -109,10 +105,8 @@ enum battery_type {
 	BATT_PALLADIUM,
 	BATT_DESAY,
 };
-
 /**
  * struct pm8921_bms_platform_data -
- * @batt_type:		allows to force chose battery calibration data
  * @r_sense:		sense resistor value in (mOhms)
  * @i_test:		current at which the unusable charger cutoff is to be
  *			calculated or the peak system current (mA)
@@ -134,7 +128,7 @@ struct pm8921_bms_platform_data {
 };
 
 #if defined(CONFIG_PM8921_BMS) || defined(CONFIG_PM8921_BMS_MODULE)
-extern struct pm8921_bms_battery_data  palladium_1500_data;
+extern struct pm8921_bms_battery_data  palladium_data;
 extern struct pm8921_bms_battery_data  desay_5200_data;
 /**
  * pm8921_bms_get_vsense_avg - return the voltage across the sense
@@ -188,7 +182,6 @@ void pm8921_bms_charging_began(void);
  *				track of chargecycles
  */
 void pm8921_bms_charging_end(int is_battery_full);
-
 void pm8921_bms_calibrate_hkadc(void);
 /**
  * pm8921_bms_get_simultaneous_battery_voltage_and_current

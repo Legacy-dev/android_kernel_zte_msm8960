@@ -1103,7 +1103,9 @@ u32 bam_pipe_timer_get_count(void *base, u32 pipe)
 	return bam_read_reg(base, P_TIMER(pipe));
 }
 
-#ifdef CONFIG_DEBUG_FS
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+//#ifdef CONFIG_DEBUG_FS
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end
 /* output the content of BAM-level registers */
 void print_bam_reg(void *virt_addr)
 {
@@ -1304,4 +1306,51 @@ void print_bam_pipe_selected_reg(void *virt_addr, u32 pipe_index)
 		bam_read_reg_field(base, P_EVNT_GEN_TRSHLD(pipe),
 					P_EVNT_GEN_TRSHLD_P_TRSHLD));
 }
-#endif
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+//#endif
+/* output descriptor FIFO of a pipe */
+void print_bam_pipe_desc_fifo(void *virt_addr, u32 pipe_index)
+{
+	void *base = virt_addr;
+	u32 pipe = pipe_index;
+	u32 desc_fifo_addr;
+	u32 desc_fifo_size;
+	u32 *desc_fifo;
+	int i;
+
+	if (base == NULL)
+		return;
+
+	desc_fifo_addr = bam_read_reg(base, P_DESC_FIFO_ADDR(pipe));
+	desc_fifo_size = bam_read_reg_field(base, P_FIFO_SIZES(pipe),
+						P_DESC_FIFO_SIZE);
+
+	if (desc_fifo_addr == 0) {
+		SPS_ERR("sps:%s:desc FIFO address of Pipe %d is NULL.\n",
+			__func__, pipe);
+		return;
+	} else if (desc_fifo_size == 0) {
+		SPS_ERR("sps:%s:desc FIFO size of Pipe %d is 0.\n",
+			__func__, pipe);
+		return;
+	}
+
+	SPS_INFO("\nsps:----- descriptor FIFO of Pipe %d -----\n", pipe);
+
+	SPS_INFO("BAM_P_DESC_FIFO_ADDR: 0x%x\n"
+		"BAM_P_DESC_FIFO_SIZE: 0x%x (%d)\n\n",
+		desc_fifo_addr, desc_fifo_size, desc_fifo_size);
+
+	desc_fifo = (u32 *) phys_to_virt(desc_fifo_addr);
+
+	SPS_INFO("-------------------- begin of FIFO --------------------\n");
+
+	for (i = 0; i < desc_fifo_size; i += 0x10)
+		SPS_INFO("addr 0x%x: 0x%x, 0x%x, 0x%x, 0x%x.\n",
+			desc_fifo_addr + i,
+			desc_fifo[i / 4], desc_fifo[(i / 4) + 1],
+			desc_fifo[(i / 4) + 2], desc_fifo[(i / 4) + 3]);
+
+	SPS_INFO("--------------------  end of FIFO  --------------------\n");
+}
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end

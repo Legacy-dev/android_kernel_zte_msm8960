@@ -12,6 +12,8 @@
  */
 
 #include "msm_sensor.h"
+#include "msm.h"
+#include "msm_ispif.h"
 #define SENSOR_NAME "mt9m114"
 #define PLATFORM_DRIVER_NAME "msm_camera_mt9m114"
 #define mt9m114_obj mt9m114_##obj
@@ -24,8 +26,11 @@
 #define MT9M114_COMMAND_REGISTER_WAIT_FOR_EVENT (1 << 3)
 #define MT9M114_COMMAND_REGISTER_OK             (1 << 15)
 
+extern void msm_sensorinfo_set_front_sensor_id(uint16_t id);
+
 DEFINE_MUTEX(mt9m114_mut);
 static struct msm_sensor_ctrl_t mt9m114_s_ctrl;
+
 
 static struct msm_camera_i2c_reg_conf mt9m114_720p_settings[] = {
 	{0xdc00, 0x50, MSM_CAMERA_I2C_BYTE_DATA, MSM_CAMERA_I2C_CMD_WRITE},
@@ -53,7 +58,7 @@ static struct msm_camera_i2c_reg_conf mt9m114_720p_settings[] = {
 	{0xC816, 0x0060,},/*fine_correction = 96*/
 	{0xC818, 0x02D3,},/*cpipe_last_row = 723*/
 	{0xC826, 0x0020,},/*reg_0_data = 32*/
-	{0xC834, 0x0000,},/*sensor_control_read_mode = 0*/
+	{0xC834, 0x0003,},//0x0000/*sensor_control_read_mode = 0*/
 	{0xC854, 0x0000,},/*crop_window_xoffset = 0*/
 	{0xC856, 0x0000,},/*crop_window_yoffset = 0*/
 	{0xC858, 0x0500,},/*crop_window_width = 1280*/
@@ -111,7 +116,7 @@ static struct msm_camera_i2c_reg_conf mt9m114_recommend_settings[] = {
 	{0xC816, 0x0060,},/*fine_correction = 96*/
 	{0xC818, 0x02D3,},/*cpipe_last_row = 723*/
 	{0xC826, 0x0020,},/*reg_0_data = 32*/
-	{0xC834, 0x0000,},/*sensor_control_read_mode = 0*/
+	{0xC834, 0x0003,},//0x0000/*sensor_control_read_mode = 0*/
 	{0xC854, 0x0000,},/*crop_window_xoffset = 0*/
 	{0xC856, 0x0000,},/*crop_window_yoffset = 0*/
 	{0xC858, 0x0500,},/*crop_window_width = 1280*/
@@ -1161,6 +1166,144 @@ static struct msm_camera_i2c_enum_conf_array mt9m114_saturation_enum_confs = {
 	.data_type = MSM_CAMERA_I2C_WORD_DATA,
 };
 
+static struct msm_camera_i2c_reg_conf mt9m114_exposure[][6] = {
+	{},
+	{},
+	{},
+	{},
+	{},
+	
+};
+
+
+static struct msm_camera_i2c_conf_array mt9m114_exposure_confs[][1] = {
+	{{mt9m114_exposure[0],
+		ARRAY_SIZE(mt9m114_exposure[0]), 0, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_exposure[1],
+		ARRAY_SIZE(mt9m114_exposure[1]), 0, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_exposure[2],
+		ARRAY_SIZE(mt9m114_exposure[2]), 0, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_exposure[3],
+		ARRAY_SIZE(mt9m114_exposure[3]), 0, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_exposure[4],
+		ARRAY_SIZE(mt9m114_exposure[4]), 0, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	
+};
+
+static int mt9m114_exposure_enum_map[] = {
+	MSM_V4L2_EXPOSURE_N2,
+	MSM_V4L2_EXPOSURE_N1,
+	MSM_V4L2_EXPOSURE_D,
+	MSM_V4L2_EXPOSURE_P1,
+	MSM_V4L2_EXPOSURE_P2,
+};
+
+
+static struct msm_camera_i2c_enum_conf_array mt9m114_exposure_enum_confs = {
+	.conf = &mt9m114_exposure_confs[0][0],
+	.conf_enum = mt9m114_exposure_enum_map,
+	.num_enum = ARRAY_SIZE(mt9m114_exposure_enum_map),
+	.num_index = ARRAY_SIZE(mt9m114_exposure_confs),
+	.num_conf = ARRAY_SIZE(mt9m114_exposure_confs[0]),
+	.data_type = MSM_CAMERA_I2C_BYTE_DATA,
+};
+static struct msm_camera_i2c_reg_conf mt9m114_brightness[][4] = {
+	{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0x96, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 
+},
+	{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0xB6, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 
+},
+	{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0xD2, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 
+},
+	{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0x00, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 
+},
+	{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0x1C, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 	
+},
+{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0x38, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 	
+},
+{
+{0x098E, 0xC870, MSM_CAMERA_I2C_WORD_DATA}, 	// MCU_ADDRESS [AE_BASETARGET]
+{0xC870, 0x54, MSM_CAMERA_I2C_BYTE_DATA}, 	// MCU_DATA_0
+{0xDC00, 0x28, MSM_CAMERA_I2C_BYTE_DATA}, 	
+{0x0080, 0x8002, MSM_CAMERA_I2C_WORD_DATA}, 
+}
+	
+};
+
+
+static struct msm_camera_i2c_conf_array mt9m114_brightness_confs[][1] = {
+	{{mt9m114_brightness[0],
+		ARRAY_SIZE(mt9m114_brightness[0]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[1],
+		ARRAY_SIZE(mt9m114_brightness[1]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[2],
+		ARRAY_SIZE(mt9m114_brightness[2]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[3],
+		ARRAY_SIZE(mt9m114_brightness[3]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[4],
+		ARRAY_SIZE(mt9m114_brightness[4]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[5],
+		ARRAY_SIZE(mt9m114_brightness[5]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	},
+	{{mt9m114_brightness[6],
+		ARRAY_SIZE(mt9m114_brightness[6]), 10, MSM_CAMERA_I2C_WORD_DATA},
+	}
+	
+};
+
+static int mt9m114_brightness_enum_map[] = {
+	MSM_V4L2_BRIGHTNESS_L0,
+	MSM_V4L2_BRIGHTNESS_L1,
+	MSM_V4L2_BRIGHTNESS_L2,
+	MSM_V4L2_BRIGHTNESS_L3,
+	MSM_V4L2_BRIGHTNESS_L4,
+	MSM_V4L2_BRIGHTNESS_L5,
+	MSM_V4L2_BRIGHTNESS_L6,
+};
+
+
+static struct msm_camera_i2c_enum_conf_array mt9m114_brightness_enum_confs = {
+	.conf = &mt9m114_brightness_confs[0][0],
+	.conf_enum = mt9m114_brightness_enum_map,
+	.num_enum = ARRAY_SIZE(mt9m114_brightness_enum_map),
+	.num_index = ARRAY_SIZE(mt9m114_brightness_confs),
+	.num_conf = ARRAY_SIZE(mt9m114_brightness_confs[0]),
+	.data_type = MSM_CAMERA_I2C_WORD_DATA,
+};
+
 struct msm_sensor_v4l2_ctrl_info_t mt9m114_v4l2_ctrl_info[] = {
 	{
 		.ctrl_id = V4L2_CID_SATURATION,
@@ -1168,6 +1311,22 @@ struct msm_sensor_v4l2_ctrl_info_t mt9m114_v4l2_ctrl_info[] = {
 		.max = MSM_V4L2_SATURATION_L10,
 		.step = 1,
 		.enum_cfg_settings = &mt9m114_saturation_enum_confs,
+		.s_v4l2_ctrl = msm_sensor_s_ctrl_by_enum,
+	},
+	{
+		.ctrl_id = V4L2_CID_EXPOSURE,
+		.min = MSM_V4L2_EXPOSURE_N2,
+		.max = MSM_V4L2_EXPOSURE_P2,
+		.step = 1,
+		.enum_cfg_settings = &mt9m114_exposure_enum_confs,
+		.s_v4l2_ctrl = msm_sensor_s_ctrl_by_enum,
+	},
+	{
+		.ctrl_id = V4L2_CID_BRIGHTNESS,
+		.min = MSM_V4L2_BRIGHTNESS_L0,
+		.max = MSM_V4L2_BRIGHTNESS_L6,
+		.step = 1,
+		.enum_cfg_settings = &mt9m114_brightness_enum_confs,
 		.s_v4l2_ctrl = msm_sensor_s_ctrl_by_enum,
 	},
 };
@@ -1220,7 +1379,121 @@ static struct msm_sensor_id_info_t mt9m114_id_info = {
 	.sensor_id_reg_addr = 0x0,
 	.sensor_id = 0x2481,
 };
+static struct msm_cam_clk_info cam_clk_info[] = {
+	{"cam_clk", MSM_SENSOR_MCLK_24HZ},
+};
 
+int32_t msm_mt9m114_sensor_i2c_probe(struct i2c_client *client,
+	const struct i2c_device_id *id)
+{
+	int rc = 0;
+	struct msm_sensor_ctrl_t *s_ctrl;
+	pr_err("%s_i2c_probe called\n", client->name);
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		pr_err("i2c_check_functionality failed\n");
+		rc = -EFAULT;
+		return rc;
+	}
+
+	s_ctrl = (struct msm_sensor_ctrl_t *)(id->driver_data);
+	if (s_ctrl->sensor_i2c_client != NULL) {
+		s_ctrl->sensor_i2c_client->client = client;
+		if (s_ctrl->sensor_i2c_addr != 0)
+			s_ctrl->sensor_i2c_client->client->addr =
+				s_ctrl->sensor_i2c_addr;
+	} else {
+		rc = -EFAULT;
+		return rc;
+	}
+
+	s_ctrl->sensordata = client->dev.platform_data;
+	if (s_ctrl->sensordata == NULL) {
+		pr_err("%s: NULL sensor data\n", __func__);
+		return -EFAULT;
+	}
+	s_ctrl->reg_ptr = kzalloc(sizeof(struct regulator *)
+			* s_ctrl->sensordata->sensor_platform_info->num_vreg, GFP_KERNEL);
+	if (!s_ctrl->reg_ptr) {
+		pr_err("%s: could not allocate mem for regulators\n",
+			__func__);
+		return -ENOMEM;
+	}
+	msm_camera_power_on(&s_ctrl->sensor_i2c_client->client->dev,s_ctrl->sensordata,s_ctrl->reg_ptr);
+	if (s_ctrl->clk_rate != 0)
+		cam_clk_info->clk_rate = s_ctrl->clk_rate;
+	rc = msm_cam_clk_enable(&s_ctrl->sensor_i2c_client->client->dev,
+		cam_clk_info, &s_ctrl->cam_clk, ARRAY_SIZE(cam_clk_info), 1);
+	if (rc < 0) {
+		pr_err("%s: clk enable failed\n", __func__);
+		goto enable_clk_failed;
+	}
+	mdelay(1);
+	rc = msm_camera_request_gpio_table(s_ctrl->sensordata, 1);
+	if (rc < 0) {
+		pr_err("%s: request gpio failed\n", __func__);
+		goto request_gpio_failed;
+	}
+	rc = msm_camera_config_gpio_table(s_ctrl->sensordata, 1);
+	if (rc < 0) {
+		pr_err("%s: config gpio failed\n", __func__);
+		goto config_gpio_failed;
+	}
+
+	usleep_range(1000, 2000);
+
+#ifdef CONFIG_SENSOR_INFO
+    	msm_sensorinfo_set_front_sensor_id(s_ctrl->sensor_id_info->sensor_id);
+#else
+  //do nothing here
+#endif	
+
+	rc = msm_sensor_match_id(s_ctrl);
+	if (rc < 0)
+		goto probe_fail;
+
+	if (s_ctrl->sensor_eeprom_client != NULL) {
+		struct msm_camera_eeprom_client *eeprom_client =
+			s_ctrl->sensor_eeprom_client;
+		if (eeprom_client->func_tbl.eeprom_init != NULL &&
+			eeprom_client->func_tbl.eeprom_release != NULL) {
+			rc = eeprom_client->func_tbl.eeprom_init(
+				eeprom_client,
+				s_ctrl->sensor_i2c_client->client->adapter);
+			if (rc < 0)
+				goto probe_fail;
+
+			rc = msm_camera_eeprom_read_tbl(eeprom_client,
+			eeprom_client->read_tbl, eeprom_client->read_tbl_size);
+			eeprom_client->func_tbl.eeprom_release(eeprom_client);
+			if (rc < 0)
+				goto probe_fail;
+		}
+	}
+
+	snprintf(s_ctrl->sensor_v4l2_subdev.name,
+		sizeof(s_ctrl->sensor_v4l2_subdev.name), "%s", id->name);
+	v4l2_i2c_subdev_init(&s_ctrl->sensor_v4l2_subdev, client,
+		s_ctrl->sensor_v4l2_subdev_ops);
+
+	msm_sensor_register(&s_ctrl->sensor_v4l2_subdev);
+	goto power_down;
+config_gpio_failed:
+	msm_camera_enable_vreg(&s_ctrl->sensor_i2c_client->client->dev,
+			s_ctrl->sensordata->sensor_platform_info->cam_vreg,
+			s_ctrl->sensordata->sensor_platform_info->num_vreg,
+			s_ctrl->reg_ptr, 0);
+request_gpio_failed:
+	kfree(s_ctrl->reg_ptr);
+enable_clk_failed:
+		msm_camera_config_gpio_table(s_ctrl->sensordata, 0);
+probe_fail:
+	pr_err("%s_i2c_probe failed\n", client->name);
+power_down:
+	if (rc > 0)
+		rc = 0;
+	s_ctrl->func_tbl->sensor_power_down(s_ctrl);
+	return rc;
+}
 static const struct i2c_device_id mt9m114_i2c_id[] = {
 	{SENSOR_NAME, (kernel_ulong_t)&mt9m114_s_ctrl},
 	{ }
@@ -1228,7 +1501,7 @@ static const struct i2c_device_id mt9m114_i2c_id[] = {
 
 static struct i2c_driver mt9m114_i2c_driver = {
 	.id_table = mt9m114_i2c_id,
-	.probe  = msm_sensor_i2c_probe,
+	.probe  = msm_mt9m114_sensor_i2c_probe,
 	.driver = {
 		.name = SENSOR_NAME,
 	},
@@ -1237,6 +1510,112 @@ static struct i2c_driver mt9m114_i2c_driver = {
 static struct msm_camera_i2c_client mt9m114_sensor_i2c_client = {
 	.addr_type = MSM_CAMERA_I2C_WORD_ADDR,
 };
+
+
+
+int32_t msm_mt9m114_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	int32_t rc = 0;
+	
+	struct msm_camera_sensor_info *data = s_ctrl->sensordata;
+	pr_err("%s: %d\n", __func__, __LINE__);
+	s_ctrl->reg_ptr = kzalloc(sizeof(struct regulator *)
+			* s_ctrl->sensordata->sensor_platform_info->num_vreg, GFP_KERNEL);
+	if (!s_ctrl->reg_ptr) {
+		pr_err("%s: could not allocate mem for regulators\n",
+			__func__);
+		return -ENOMEM;
+	}
+	
+	msm_camera_power_on(&s_ctrl->sensor_i2c_client->client->dev,s_ctrl->sensordata,s_ctrl->reg_ptr);
+
+	if (s_ctrl->clk_rate != 0)
+		cam_clk_info->clk_rate = s_ctrl->clk_rate;
+	rc = msm_cam_clk_enable(&s_ctrl->sensor_i2c_client->client->dev,
+		cam_clk_info, &s_ctrl->cam_clk, ARRAY_SIZE(cam_clk_info), 1);
+	if (rc < 0) {
+		pr_err("%s: clk enable failed\n", __func__);
+		goto enable_clk_failed;
+	}
+	mdelay(1);
+
+	rc = msm_camera_config_gpio_table(data, 1);
+	if (rc < 0) {
+		pr_err("%s: config gpio failed\n", __func__);
+	}
+	pr_err("%s: OK\n", __func__);
+	return rc;
+
+enable_clk_failed:
+		msm_camera_config_gpio_table(data, 0);
+
+	return rc;
+}
+
+
+int32_t msm_mt9m114_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	int32_t rc = 0;
+	//struct msm_camera_sensor_info *data = s_ctrl->sensordata;
+	pr_err("%s\n", __func__);
+	rc=gpio_direction_output(76, 0);
+	if (rc < 0)  
+	pr_err("%s pwd gpio76  direction 0   failed\n",__func__);
+	mdelay(1);
+	msm_cam_clk_enable(&s_ctrl->sensor_i2c_client->client->dev,
+		cam_clk_info, &s_ctrl->cam_clk, ARRAY_SIZE(cam_clk_info), 0);
+	msm_camera_power_off(&s_ctrl->sensor_i2c_client->client->dev,s_ctrl->sensordata,s_ctrl->reg_ptr);
+	return 0;
+}
+
+int32_t msm_mt9m114_sensor_setting(struct msm_sensor_ctrl_t *s_ctrl,
+			int update_type, int res)
+{
+	int32_t rc = 0;
+	pr_err("%s    res=%d",__func__,res);
+	v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+		NOTIFY_ISPIF_STREAM, (void *)ISPIF_STREAM(
+		PIX_0, ISPIF_OFF_IMMEDIATELY));
+	
+	s_ctrl->func_tbl->sensor_stop_stream(s_ctrl);
+	msleep(30);
+	if (update_type == MSM_SENSOR_REG_INIT) {
+		pr_err("%s  MSM_SENSOR_REG_INIT   res=%d",__func__,res);
+		s_ctrl->curr_csi_params = NULL;
+		msm_sensor_enable_debugfs(s_ctrl);
+		msm_sensor_write_init_settings(s_ctrl);
+	} else if (update_type == MSM_SENSOR_UPDATE_PERIODIC) {
+	pr_err("%s  MSM_SENSOR_UPDATE_PERIODIC   res=%d",__func__,res);
+		msm_sensor_write_res_settings(s_ctrl, res);
+		if (s_ctrl->curr_csi_params != s_ctrl->csi_params[res]) {
+			s_ctrl->curr_csi_params = s_ctrl->csi_params[res];
+			v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+				NOTIFY_CSID_CFG,
+				&s_ctrl->curr_csi_params->csid_params);
+			v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+						NOTIFY_CID_CHANGE, NULL);
+			mb();
+			v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+				NOTIFY_CSIPHY_CFG,
+				&s_ctrl->curr_csi_params->csiphy_params);
+			mb();
+			msleep(20);
+		}
+
+		v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+			NOTIFY_PCLK_CHANGE, &s_ctrl->msm_sensor_reg->
+			output_settings[res].op_pixel_clk);
+		v4l2_subdev_notify(&s_ctrl->sensor_v4l2_subdev,
+			NOTIFY_ISPIF_STREAM, (void *)ISPIF_STREAM(
+			PIX_0, ISPIF_ON_FRAME_BOUNDARY));
+		s_ctrl->func_tbl->sensor_start_stream(s_ctrl);
+		msleep(30);
+		pr_err("%s: %d\n", __func__, __LINE__);
+	}
+	pr_err("%s: %d\n", __func__, __LINE__);
+	return rc;
+}
+
 
 static int __init msm_sensor_init_module(void)
 {
@@ -1262,13 +1641,13 @@ static struct v4l2_subdev_ops mt9m114_subdev_ops = {
 static struct msm_sensor_fn_t mt9m114_func_tbl = {
 	.sensor_start_stream = msm_sensor_start_stream,
 	.sensor_stop_stream = mt9m114_stop_stream,
-	.sensor_setting = msm_sensor_setting,
+	.sensor_setting = msm_mt9m114_sensor_setting,
 	.sensor_set_sensor_mode = msm_sensor_set_sensor_mode,
 	.sensor_mode_init = msm_sensor_mode_init,
 	.sensor_get_output_info = msm_sensor_get_output_info,
 	.sensor_config = msm_sensor_config,
-	.sensor_power_up = msm_sensor_power_up,
-	.sensor_power_down = msm_sensor_power_down,
+	.sensor_power_up = msm_mt9m114_sensor_power_up,
+	.sensor_power_down = msm_mt9m114_sensor_power_down,
 };
 
 static struct msm_sensor_reg_t mt9m114_regs = {

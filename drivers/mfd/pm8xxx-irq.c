@@ -187,6 +187,86 @@ static int pm8xxx_irq_master_handler(struct pm_irq_chip *chip, int master)
 	return ret;
 }
 
+/*Add for pm8xxx irq status dump ZhengChao*/
+#ifdef CONFIG_PM
+#include <linux/syscore_ops.h>
+
+static struct pm_irq_chip *pm8xxx_irq_chip_ptr=NULL;
+
+void pm8xxx_show_resume_irq(void)
+{
+	u8	roots,blocks,bits,masters;
+	int i,j,k;
+	struct pm_irq_chip *chip = pm8xxx_irq_chip_ptr;
+	int ret,master,block,bit,irq;
+	
+	ret = pm8xxx_read_root_irq(chip, &roots);
+	if (ret) {
+		pr_err("Can't read root status ret=%d\n", ret);
+		return;
+	}
+	
+	/* on pm8xxx series masters start from bit 1 of the root */
+	masters = roots >> 1;
+	
+	/* Every Master. */
+	for (i = 0; i < chip->num_masters; i++) {
+		if (masters & (1 << i)){
+			master = i;
+			ret = pm8xxx_read_master_irq(chip, master, &blocks);
+			if (ret) {
+				pr_err("Failed to read master %d ret=%d\n", master, ret);
+				return;
+			}
+			if (!blocks) {
+				pr_err("master bit set in root but no blocks: %d", master);
+				return;
+			}
+		  	/*Every Block*/
+		  	for (j = 0; j < 8; j++) {
+				if (blocks & (1 << j)) {
+					block = master * 8 + j;	/* block # */				
+					ret = pm8xxx_read_block_irq(chip, block, &bits);
+					if (ret) {
+						pr_err("Failed reading %d block ret=%d", block, ret);
+						return;
+					}
+					if (!bits) {
+						pr_err("block bit set in master but no irqs: %d", block);
+						return;
+					}
+
+					/* Every Bit */
+					for (k = 0; k < 8; k++) {
+						if (bits & (1 << k)) {
+							bit = block * 8 + k;
+							irq = bit + chip->irq_base;
+							{//ZhengChao
+								extern void print_irq_info(int i);
+								print_irq_info(irq);
+							}
+						}
+					}
+				}
+		  	}
+
+		}
+	}
+}
+
+static void pm8xxx_irq_resume(void)
+{
+	pr_info("pm8xxx_irq_resume\n");
+	pm8xxx_show_resume_irq();
+}
+
+
+static struct syscore_ops pm8xxx_syscore_ops = {
+	.suspend = NULL,
+	.resume = pm8xxx_irq_resume,
+};
+#endif
+
 static irqreturn_t pm8xxx_irq_handler(int irq, void *data)
 {
 	struct pm_irq_chip *chip = data;
@@ -402,7 +482,9 @@ struct pm_irq_chip *  __devinit pm8xxx_irq_init(struct device *dev,
 		pr_err("Cannot alloc pm_irq_chip struct\n");
 		return ERR_PTR(-EINVAL);
 	}
-
+#ifdef CONFIG_PM
+	pm8xxx_irq_chip_ptr = chip;
+#endif
 	chip->dev = dev;
 	chip->devirq = devirq;
 	chip->irq_base = pdata->irq_base;
@@ -435,7 +517,9 @@ struct pm_irq_chip *  __devinit pm8xxx_irq_init(struct device *dev,
 			irq_set_irq_wake(devirq, 1);
 		}
 	}
-
+#ifdef CONFIG_PM
+	register_syscore_ops(&pm8xxx_syscore_ops);
+#endif
 	return chip;
 }
 

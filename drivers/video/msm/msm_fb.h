@@ -189,10 +189,83 @@ struct msm_fb_data_type {
 	int cont_splash_done;
 };
 
+//< 2012/5/18-N9210_add_lcd_factory_mode-lizhiye- < short commond here >
+typedef enum {
+	LCD_PANEL_NOPANEL,
+
+	LCD_PANEL_P726_ILI9325C,
+	LCD_PANEL_P726_HX8347D,
+	LCD_PANEL_P726_S6D04M0X01,
+	LCD_PANEL_P722_HX8352A		=10,
+	LCD_PANEL_P727_HX8352A		=20,
+	LCD_PANEL_R750_ILI9481_1	=30,
+	LCD_PANEL_R750_ILI9481_2,
+	LCD_PANEL_R750_ILI9481_3,
+	LCD_PANEL_P729_TL2796		=40,
+	LCD_PANEL_P729_TFT_TRULY,
+	LCD_PANEL_P729_TFT_LEAD,
+	LCD_PANEL_P729_TFT_LEAD_CMI,
+	LCD_PANEL_P729_TFT_TRULY_LG,
+	LCD_PANEL_P729_TFT_LEAD_CASIO,
+	LCD_PANEL_V9_NT39416I		=50,
+	LCD_PANEL_4P3_NT35510		=60,
+	LCD_PANEL_4P3_HX8369A,
+	LCD_PANEL_3P8_NT35510_1		=70,
+	LCD_PANEL_3P8_NT35510_2,
+	LCD_PANEL_3P8_HX8363A,
+	LCD_PANEL_3P5_ILI9481_1		=80,
+	LCD_PANEL_3P5_ILI9481_2,
+	LCD_PANEL_3P5_R61581,
+	LCD_PANEL_2P6_HX8368A_1		=90,
+	LCD_PANEL_2P6_HX8368A_2,
+	LCD_PANEL_3P5_HX8369_LG		=100,
+	LCD_PANEL_3P5_HX8369_HYDIS,
+	
+	LCD_PANEL_3P95_HX8357C_BOE	= 200,
+	LCD_PANEL_3P95_HX8357_BOE_BOE,
+	LCD_PANEL_3P95_HX8357_TIANMA_TIANMA,
+	LCD_PANEL_3P95_HX8357_IVO_YUSHUN,
+	LCD_PANEL_3P95_HX8357_HANSTAR_LEAD,
+	
+	LCD_PANEL_3P5_N766_R61581_TRULY = 250,
+	LCD_PANEL_3P5_N766_R61581_TRULY_VER2,
+	LCD_PANEL_3P5_N766_R61581_BOE,
+	LCD_PANEL_3P5_N766_HX8357C_LEAD,
+	LCD_PANEL_3P5_N766_HX8357C_YUSHUN,
+	LCD_PANEL_3P5_ILI9486_YUSHUN,	
+	LCD_PANEL_3P5_HX8357_TRULY,	
+	LCD_PANEL_3P5_HX8357_LEAD,
+	LCD_PANEL_3P5_HX8357_BOE,
+
+	LCD_PANEL_4P0_HX8363_CMI_YASSY	= 280,
+	LCD_PANEL_4P0_HIMAX8369_LEAD,
+	LCD_PANEL_4P0_HIMAX8369_LEAD_HANNSTAR,
+	LCD_PANEL_4P0_HIMAX8369_TIANMA_TN,
+	LCD_PANEL_4P0_HIMAX8369_TIANMA_IPS,
+	LCD_PANEL_4P0_NT35510_LEAD,
+	LCD_PANEL_4P0_NT35510_HYDIS_YUSHUN,
+	LCD_PANEL_4P0_R61408_TRULY_LG,
+	LCD_PANEL_4P0_HX8363_IVO_YUSHUN,
+	LCD_PANEL_4P0_HX8369_LG_TRULY,
+	LCD_PANEL_4P0_HX8369_LG_LEAD,	
+
+	LCD_PANEL_4P3_NT35516_AUO_LEAD	= 300,	
+	LCD_PANEL_4P3_NT35516_LG_TRULY,	
+	//< 2012/6/14-N9500_add_new_lcd_bootloader_kernel-lizhiye- < short commond here >
+	LCD_PANEL_4P3_OTM1280_OT_CMI = 310,	
+	LCD_PANEL_4P3_OTM1281_OT_TRULY,
+	//>2012/6/14-N9500_add_new_lcd_bootloader_kernel-lizhiye
+	LCD_PANEL_4P3_NT35516_SHARP_SHARP,
+	
+	LCD_PANEL_MAX
+} LCD_PANEL_ID;
+//>2012/5/18-N9210_add_lcd_factory_mode-lizhiye
+
+
 struct dentry *msm_fb_get_debugfs_root(void);
 void msm_fb_debugfs_file_create(struct dentry *root, const char *name,
 				u32 *var);
-void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl);
+void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl,__u32 save);
 
 struct platform_device *msm_fb_add_device(struct platform_device *pdev);
 struct fb_info *msm_fb_get_writeback_fb(void);
@@ -215,10 +288,5 @@ void fill_black_screen(void);
 void unfill_black_screen(void);
 int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,
 				struct fb_info *info);
-
-#ifdef CONFIG_FB_MSM_LOGO
-#define INIT_IMAGE_FILE "/initlogo.rle"
-int load_565rle_image(char *filename, bool bf_supported);
-#endif
 
 #endif /* MSM_FB_H */

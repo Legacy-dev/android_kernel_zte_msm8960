@@ -1824,6 +1824,11 @@ static int mdp4_overlay_validate_downscale(struct mdp_overlay *req,
 	pr_debug("src_w %u, src_h %u, dst_w %u, dst_h %u\n",
 		req->src_rect.w, req->src_rect.h, req->dst_rect.w,
 		req->dst_rect.h);
+	if((req->src_rect.w>1200)&&(req->src_rect.h>700))
+	{
+		pr_err("%s: LHT 720P Portrait mode use WriteBack \n", __func__);
+		return -ERANGE;
+	}
 
 
 	panel_clk_khz = pclk_rate/1000;

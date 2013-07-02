@@ -677,3 +677,10 @@ config MMC_USHC
 
 	  Note: These controllers only support SDIO cards and do not
 	  support MMC or SD memory cards.
+	  
+config MMC_ZTE_USE_HIGH_SD_SLOT_HW
+	boolean "ZTE use high voltage value hw sd card slot"
+	depends on MMC_MSM
+	default n
+	help
+	  Select Y if the hardware use high voltage value hw sd card slot.	  

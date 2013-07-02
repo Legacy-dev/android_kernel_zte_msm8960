@@ -110,7 +110,9 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 	struct mdp4_overlay_pipe *pipe;
 	int ret;
-
+	
+	printk("\nLCD %s: \n", __func__);
+	
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
 	if (!mfd)
@@ -289,14 +291,16 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-
+	mdp4_overlay_dsi_video_start();//pan add for wake up
 	return ret;
 }
 
 int mdp4_dsi_video_off(struct platform_device *pdev)
 {
 	int ret = 0;
-
+	
+       printk("\nLCD %s: \n", __func__);
+	   
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	MDP_OUTP(MDP_BASE + DSI_VIDEO_BASE, 0);

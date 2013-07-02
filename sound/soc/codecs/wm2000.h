@@ -15,6 +15,8 @@ struct wm2000_setup_data {
 };
 
 extern int wm2000_add_controls(struct snd_soc_codec *codec);
+extern int wm2000_suspend(struct snd_soc_card *card);
+extern int wm2000_resume(struct snd_soc_card *card);
 
 #define WM2000_REG_SYS_START	    0x8000
 #define WM2000_REG_SPEECH_CLARITY   0x8fef

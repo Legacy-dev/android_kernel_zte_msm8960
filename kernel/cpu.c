@@ -428,6 +428,7 @@ int disable_nonboot_cpus(void)
 		printk(KERN_ERR "Non-boot CPUs are not disabled\n");
 	}
 	cpu_maps_update_done();
+	printk("Disabling non-boot CPUs ... end\n");
 	return error;
 }
 
@@ -463,6 +464,8 @@ void __ref enable_nonboot_cpus(void)
 	}
 
 	arch_enable_nonboot_cpus_end();
+
+	printk(KERN_INFO "Enabling non-boot CPUs ...tcd done\n");
 
 	cpumask_clear(frozen_cpus);
 out:

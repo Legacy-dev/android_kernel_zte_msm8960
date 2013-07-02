@@ -54,6 +54,9 @@ extern struct platform_device msm8960_device_uart_gsbi5;
 extern struct platform_device msm8960_device_ssbi_pmic;
 extern struct platform_device msm8960_device_qup_i2c_gsbi3;
 extern struct platform_device msm8960_device_qup_i2c_gsbi4;
+#ifdef CONFIG_MHL_Sii8334
+extern struct platform_device msm8960_device_qup_i2c_gsbi5;
+#endif
 extern struct platform_device msm8960_device_qup_i2c_gsbi10;
 extern struct platform_device msm8960_device_qup_i2c_gsbi12;
 extern struct platform_device msm8960_device_qup_spi_gsbi1;
@@ -68,6 +71,8 @@ extern struct platform_device msm8960_device_ispif;
 extern struct platform_device msm8960_device_vfe;
 extern struct platform_device msm8960_device_vpe;
 extern struct platform_device msm8960_device_cache_erp;
+extern struct platform_device msm8960_device_ebi1_ch0_erp;
+extern struct platform_device msm8960_device_ebi1_ch1_erp;
 
 extern struct platform_device apq8064_device_uart_gsbi1;
 extern struct platform_device apq8064_device_uart_gsbi3;
@@ -86,6 +91,14 @@ extern struct platform_device msm9615_device_ssbi_pmic1;
 extern struct platform_device msm9615_device_tsens;
 extern struct platform_device msm_bus_9615_sys_fabric;
 extern struct platform_device msm_bus_def_fab;
+//YANWEI_FLSH_ADP1650_20120328 begin
+#ifdef CONFIG_FLSH_ADP1650
+extern struct platform_device msm8960_device_qup_i2c_gsbi7;
+#endif
+//YANWEI_FLSH_ADP1650_20120328 end
+#ifdef CONFIG_ISPCAM
+extern struct platform_device msm8960_device_qup_i2c_gsbi7;
+#endif
 
 extern struct platform_device msm_device_sdc1;
 extern struct platform_device msm_device_sdc2;

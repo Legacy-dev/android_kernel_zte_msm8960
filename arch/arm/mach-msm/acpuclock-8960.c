@@ -465,7 +465,7 @@ static struct l2_level l2_freq_tbl_8960_kraitv2[] = {
 	[19] = { { 1350000, HFPLL, 1, 0, 0x32 }, 1150000, 1150000, 6 },
 };
 
-static struct acpu_level acpu_freq_tbl_8960_kraitv2_slow[] = {
+struct acpu_level acpu_freq_tbl_8960_kraitv2_slow[] = {
 	{ 0, { STBY_KHZ, QSB,   0, 0, 0x00 }, L2(0),   950000 },
 	{ 1, {   384000, PLL_8, 0, 2, 0x00 }, L2(1),   950000 },
 	{ 0, {   432000, HFPLL, 2, 0, 0x20 }, L2(7),   975000 },
@@ -492,7 +492,7 @@ static struct acpu_level acpu_freq_tbl_8960_kraitv2_slow[] = {
 	{ 0, { 0 } }
 };
 
-static struct acpu_level acpu_freq_tbl_8960_kraitv2_nom[] = {
+struct acpu_level acpu_freq_tbl_8960_kraitv2_nom[] = {
 	{ 0, { STBY_KHZ, QSB,   0, 0, 0x00 }, L2(0),   900000 },
 	{ 1, {   384000, PLL_8, 0, 2, 0x00 }, L2(1),   900000 },
 	{ 0, {   432000, HFPLL, 2, 0, 0x20 }, L2(7),   925000 },
@@ -519,7 +519,7 @@ static struct acpu_level acpu_freq_tbl_8960_kraitv2_nom[] = {
 	{ 0, { 0 } }
 };
 
-static struct acpu_level acpu_freq_tbl_8960_kraitv2_fast[] = {
+struct acpu_level acpu_freq_tbl_8960_kraitv2_fast[] = {
 	{ 0, { STBY_KHZ, QSB,   0, 0, 0x00 }, L2(0),   850000 },
 	{ 1, {   384000, PLL_8, 0, 2, 0x00 }, L2(1),   850000 },
 	{ 0, {   432000, HFPLL, 2, 0, 0x20 }, L2(7),   875000 },
@@ -1043,15 +1043,30 @@ static unsigned int calculate_vdd_dig(struct acpu_level *tgt)
 	return max(tgt->l2_level->vdd_dig, pll_vdd_dig);
 }
 
-#define BOOST_UV 25000
-
-static unsigned boost_uv;
+#define BOOST_UV 50000
+static unsigned int boost_uv;
 static bool enable_boost;
+static bool enable_zte_log;
 module_param_named(boost, enable_boost, bool, S_IRUGO | S_IWUSR);
+module_param_named(boost_uv, boost_uv, uint, S_IRUGO | S_IWUSR);
+module_param_named(enable_zte_log, enable_zte_log, bool, S_IRUGO | S_IWUSR);
 
 static unsigned int calculate_vdd_core(struct acpu_level *tgt)
 {
-	return tgt->vdd_core + (enable_boost ? boost_uv : 0);
+	unsigned int pll_vdd_core;
+
+	if (tgt->speed.src != HFPLL)
+		pll_vdd_core = 0;
+	else if (tgt->speed.pll_l_val > HFPLL_LOW_VDD_PLL_L_MAX)
+		pll_vdd_core = HFPLL_NOMINAL_VDD;
+	else
+		pll_vdd_core = HFPLL_LOW_VDD;
+
+#if 1
+	return max((tgt->vdd_core +  boost_uv), pll_vdd_core);
+#else
+	return max((tgt->vdd_core + (enable_boost ? boost_uv : 0)), pll_vdd_core);
+#endif
 }
 
 /* Set the CPU's clock rate and adjust the L2 rate, if appropriate. */
@@ -1103,9 +1118,10 @@ static int acpuclk_8960_set_rate(int cpu, unsigned long rate,
 			goto out;
 	}
 
-	pr_debug("Switching from ACPU%d rate %u KHz -> %u KHz\n",
-		cpu, strt_acpu_s->khz, tgt_acpu_s->khz);
-
+       if(enable_zte_log)
+	    printk("slf2012 switching from ACPU%d rate %u KHz -> %u KHz,vdd_mem=%d,vdd_dig=%d,vdd_core=%d,enable_boost=%d\n",
+		cpu, strt_acpu_s->khz, tgt_acpu_s->khz,vdd_mem,vdd_dig,vdd_core,enable_boost);
+       
 	/* Set the CPU speed. */
 	set_speed(&scalable[cpu], tgt_acpu_s, reason);
 
@@ -1360,6 +1376,7 @@ static void kraitv2_apply_vmin(struct acpu_level *tbl)
 static struct acpu_level * __init select_freq_plan(void)
 {
 	struct acpu_level *l, *max_acpu_level = NULL;
+	unsigned int zte_cpu_id;
 
 	/* Select frequency tables. */
 	if (cpu_is_msm8960()) {
@@ -1377,21 +1394,34 @@ static struct acpu_level * __init select_freq_plan(void)
 			pr_info("ACPU PVS: Slow\n");
 			v1 = acpu_freq_tbl_8960_kraitv1_slow;
 			v2 = acpu_freq_tbl_8960_kraitv2_slow;
+			boost_uv = BOOST_UV;
+			enable_boost = true;
 			break;
+			
 		case 0x1:
 			pr_info("ACPU PVS: Nominal\n");
 			v1 = acpu_freq_tbl_8960_kraitv1_nom_fast;
+#if 0			
 			v2 = acpu_freq_tbl_8960_kraitv2_nom;
+#else
+            v2 = acpu_freq_tbl_8960_kraitv2_slow;
+#endif
 			boost_uv = BOOST_UV;
 			enable_boost = true;
 			break;
+			
 		case 0x3:
 			pr_info("ACPU PVS: Fast\n");
 			v1 = acpu_freq_tbl_8960_kraitv1_nom_fast;
+#if 0			
 			v2 = acpu_freq_tbl_8960_kraitv2_fast;
+#else
+            v2 = acpu_freq_tbl_8960_kraitv2_slow;
+#endif
 			boost_uv = BOOST_UV;
 			enable_boost = true;
 			break;
+			
 		default:
 			pr_warn("ACPU PVS: Unknown. Defaulting to slow.\n");
 			v1 = acpu_freq_tbl_8960_kraitv1_slow;
@@ -1435,7 +1465,9 @@ static struct acpu_level * __init select_freq_plan(void)
 		if (l->use_for_scaling)
 			max_acpu_level = l;
 	BUG_ON(!max_acpu_level);
-	pr_info("Max ACPU freq: %u KHz\n", max_acpu_level->speed.khz);
+
+	zte_cpu_id=read_cpuid_id();
+	pr_info("slf2012:CPU_ID=0x%X, Max ACPU freq= %u KHz, boost_uv=%d\n", zte_cpu_id,max_acpu_level->speed.khz,boost_uv);
 
 	return max_acpu_level;
 }
@@ -1451,7 +1483,11 @@ static int __init acpuclk_8960_init(struct acpuclk_soc_data *soc_data)
 {
 	struct acpu_level *max_acpu_level = select_freq_plan();
 
-	regulator_init(max_acpu_level->vdd_core);
+	enable_zte_log=0;
+
+       pr_info("boot_freq=%d,vdd_core=%d\n",max_acpu_level->speed.khz,(max_acpu_level->vdd_core+  boost_uv));
+
+	regulator_init(max_acpu_level->vdd_core+  boost_uv);//add by stone 20120822 for L1 cache
 	bus_init(max_acpu_level->l2_level->bw_level);
 
 	init_clock_sources(&scalable[L2], &max_acpu_level->l2_level->speed);
@@ -1472,3 +1508,4 @@ struct acpuclk_soc_data acpuclk_8960_soc_data __initdata = {
 struct acpuclk_soc_data acpuclk_8930_soc_data __initdata = {
 	.init = acpuclk_8960_init,
 };
+

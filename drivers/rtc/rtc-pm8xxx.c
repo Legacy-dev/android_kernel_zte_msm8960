@@ -115,7 +115,7 @@ pm8xxx_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	value[2] = (secs >> 16) & 0xFF;
 	value[3] = (secs >> 24) & 0xFF;
 
-	dev_dbg(dev, "Seconds value to be written to RTC = %lu\n", secs);
+	dev_info(dev, "pm8xxx_rtc_set_time---Seconds value to be written to RTC = %lu\n", secs);
 
 	spin_lock_irqsave(&rtc_dd->ctrl_reg_lock, irq_flags);
 	ctrl_reg = rtc_dd->ctrl_reg;
@@ -167,6 +167,10 @@ pm8xxx_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	}
 
 	rtc_dd->ctrl_reg = ctrl_reg;
+
+	dev_info(dev, "pm8xxx_rtc_set_time--secs = %lu, h:m:s == %d:%d:%d, d/m/y = %d/%d/%d\n",
+			secs, tm->tm_hour, tm->tm_min, tm->tm_sec,
+			tm->tm_mday, tm->tm_mon, tm->tm_year);
 
 rtc_rw_fail:
 	if (alarm_enabled)
@@ -220,7 +224,7 @@ pm8xxx_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		return rc;
 	}
 
-	dev_dbg(dev, "secs = %lu, h:m:s == %d:%d:%d, d/m/y = %d/%d/%d\n",
+	dev_info(dev, "pm8xxx_rtc_read_time--secs = %lu, h:m:s == %d:%d:%d, d/m/y = %d/%d/%d\n",
 			secs, tm->tm_hour, tm->tm_min, tm->tm_sec,
 			tm->tm_mday, tm->tm_mon, tm->tm_year);
 
@@ -280,7 +284,7 @@ pm8xxx_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 
 	rtc_dd->ctrl_reg = ctrl_reg;
 
-	dev_dbg(dev, "Alarm Set for h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
+	dev_info(dev, "pm8xxx_rtc_set_alarm--- h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
 			alarm->time.tm_hour, alarm->time.tm_min,
 			alarm->time.tm_sec, alarm->time.tm_mday,
 			alarm->time.tm_mon, alarm->time.tm_year);
@@ -315,7 +319,7 @@ pm8xxx_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 		return rc;
 	}
 
-	dev_dbg(dev, "Alarm set for - h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
+	dev_info(dev, "pm8xxx_rtc_read_alarm--- h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
 		alarm->time.tm_hour, alarm->time.tm_min,
 				alarm->time.tm_sec, alarm->time.tm_mday,
 				alarm->time.tm_mon, alarm->time.tm_year);
@@ -365,6 +369,8 @@ static irqreturn_t pm8xxx_alarm_trigger(int irq, void *dev_id)
 	unsigned long irq_flags;
 
 	rtc_update_irq(rtc_dd->rtc, 1, RTC_IRQF | RTC_AF);
+
+	dev_info(rtc_dd->rtc_dev, "pm8xxx_alarm_trigger is enter!\n");
 
 	spin_lock_irqsave(&rtc_dd->ctrl_reg_lock, irq_flags);
 
@@ -549,6 +555,7 @@ static int __devexit pm8xxx_rtc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+extern unsigned char zte_rtc_alarm_en;
 static void pm8xxx_rtc_shutdown(struct platform_device *pdev)
 {
 	u8 value[4] = {0, 0, 0, 0};
@@ -562,7 +569,9 @@ static void pm8xxx_rtc_shutdown(struct platform_device *pdev)
 	if (pdata != NULL)
 		rtc_alarm_powerup =  pdata->rtc_alarm_powerup;
 
-	if (!rtc_alarm_powerup) {
+	if (!rtc_alarm_powerup||!zte_rtc_alarm_en) {
+
+		printk("pm8921 rtc alarm disable:rtc_alarm_powerup=%d,zte_rtc_alarm_en=%d\n",rtc_alarm_powerup,zte_rtc_alarm_en);
 
 		spin_lock_irqsave(&rtc_dd->ctrl_reg_lock, irq_flags);
 		dev_dbg(&pdev->dev, "Disabling alarm interrupts\n");
@@ -584,6 +593,10 @@ static void pm8xxx_rtc_shutdown(struct platform_device *pdev)
 
 fail_alarm_disable:
 		spin_unlock_irqrestore(&rtc_dd->ctrl_reg_lock, irq_flags);
+	}
+	else
+	{
+             printk("pm8921 rtc alarm enable:rtc_alarm_powerup=%d,zte_rtc_alarm_en=%d\n",rtc_alarm_powerup,zte_rtc_alarm_en);
 	}
 }
 

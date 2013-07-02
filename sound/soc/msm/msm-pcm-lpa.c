@@ -78,6 +78,7 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 static void event_handler(uint32_t opcode,
 		uint32_t token, uint32_t *payload, void *priv)
 {
+#if 0
 	struct msm_audio *prtd = priv;
 	struct snd_pcm_substream *substream = prtd->substream;
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -85,6 +86,26 @@ static void event_handler(uint32_t opcode,
 	struct audio_buffer *buf = NULL;
 	unsigned long flag = 0;
 	int i = 0;
+#else
+	struct msm_audio *prtd = NULL;
+	struct snd_pcm_substream *substream = NULL;
+	struct snd_pcm_runtime *runtime = NULL;
+	struct audio_aio_write_param param;
+	struct audio_buffer *buf = NULL;
+	unsigned long flag = 0;
+	int i = 0;
+
+// chenjun:fix kernel NULL pointer
+	if ((payload == NULL) || (priv == NULL)) {
+		pr_err("%s:payload or priv NULL\n", __func__);
+		return;
+	}
+//
+
+	prtd = priv;
+	substream = prtd->substream;
+	runtime = substream->runtime;
+#endif
 
 	pr_debug("%s\n", __func__);
 	spin_lock_irqsave(&the_locks.event_lock, flag);
@@ -109,15 +130,17 @@ static void event_handler(uint32_t opcode,
 			break;
 		} else
 			atomic_set(&prtd->pending_buffer, 0);
+
+		buf = prtd->audio_client->port[IN].buf;
 		if (runtime->status->hw_ptr >= runtime->control->appl_ptr) {
-			memset((void *)buf[0].phys +
+			pr_err("%s:hw_ptr >= appl_ptr\n", __func__);
+			memset((void *)buf[0].data +
 				(prtd->out_head * prtd->pcm_count),
 				0, prtd->pcm_count);
 		}
 		pr_debug("%s:writing %d bytes of buffer to dsp 2\n",
 				__func__, prtd->pcm_count);
 
-		buf = prtd->audio_client->port[IN].buf;
 		param.paddr = (unsigned long)buf[0].phys
 				+ (prtd->out_head * prtd->pcm_count);
 		param.len = prtd->pcm_count;

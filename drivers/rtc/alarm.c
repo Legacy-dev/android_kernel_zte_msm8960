@@ -24,6 +24,7 @@
 #include <linux/sysdev.h>
 #include <linux/wakelock.h>
 
+
 #define ANDROID_ALARM_PRINT_ERROR (1U << 0)
 #define ANDROID_ALARM_PRINT_INIT_STATUS (1U << 1)
 #define ANDROID_ALARM_PRINT_TSET (1U << 2)
@@ -91,7 +92,7 @@ static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 		alarm->type, alarm->function, ktime_to_ns(alarm->expires));
 
 	if (is_wakeup && suspended) {
-		pr_alarm(FLOW, "changed alarm while suspened\n");
+		printk( "slf changed alarm while suspened\n");
 		wake_lock_timeout(&alarm_rtc_wake_lock, 1 * HZ);
 		return;
 	}

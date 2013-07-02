@@ -159,6 +159,7 @@ struct mmc_platform_data {
 	bool disable_bam;
 	bool disable_runtime_pm;
 	bool disable_cmd23;
+	int enable_polling_timer;//ZTE
 	u32 swfi_latency;
 	struct msm_mmc_bus_voting_data *msm_bus_voting_data;
 };

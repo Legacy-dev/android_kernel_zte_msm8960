@@ -44,6 +44,10 @@
 #include "proc_comm.h"
 #include "modem_notifier.h"
 
+#ifdef CONFIG_ZTE_SDLOG
+extern int sdlog_flag;
+#endif
+
 #if defined(CONFIG_ARCH_QSD8X50) || defined(CONFIG_ARCH_MSM8X60) \
 	|| defined(CONFIG_ARCH_MSM8960) || defined(CONFIG_ARCH_FSM9XXX) \
 	|| defined(CONFIG_ARCH_MSM9615)	|| defined(CONFIG_ARCH_APQ8064)
@@ -2155,6 +2159,54 @@ static int smsm_cb_init(void)
 	return ret;
 }
 
+/*
+ * Support for FTM & RECOVERY mode 
+ * ZTE_PLATFORM
+ */
+#ifdef ZTE_BOOT_MODE
+static void smem_zte_set_nv_bootmode(int bootmode)
+{
+    int *smem_bootmode = NULL;
+
+    smem_bootmode = (int *)smem_alloc2(SMEM_ID_VENDOR0, sizeof(int));
+
+    if (!smem_bootmode)
+    {
+        pr_err("%s: alloc smem failed!\n", __func__);
+        return;
+    }
+
+    /*
+      * 0: Normal mode
+      * 1: FTM mode
+      */
+    *smem_bootmode = bootmode;
+
+    pr_info("%s: set ftm flag to smem.\n", __func__);
+}
+#endif
+
+
+
+#ifdef CONFIG_ZTE_SDLOG
+
+static void smem_set_sdlog_flag(int flag)
+{
+    int * zte_sharemem_ptr = NULL;
+    
+    //set sdlog flag in share memory to notify Q6
+    zte_sharemem_ptr = (int *)smem_alloc2(SMEM_ID_VENDOR1, sizeof(int));
+    if (!zte_sharemem_ptr)
+    {
+        pr_info("sdlog alloc smem error\n");
+        return;
+    }
+
+    *zte_sharemem_ptr = flag;
+}
+
+#endif
+
 static int smsm_init(void)
 {
 	struct smem_shared *shared = (void *) MSM_SHARED_RAM_BASE;
@@ -2224,6 +2276,24 @@ static int smsm_init(void)
 	i = smsm_cb_init();
 	if (i)
 		return i;
+
+/*
+ * Support for FTM & RECOVERY mode
+ * ZTE_PLATFORM
+ *
+ * 0: Normal mode
+ * 1: FTM mode
+ */
+#ifdef ZTE_BOOT_MODE
+    if (socinfo_get_ftm_flag() == 0)
+    {
+        smem_zte_set_nv_bootmode(socinfo_get_ftm_flag());
+    }
+#endif
+
+#ifdef CONFIG_ZTE_SDLOG
+    smem_set_sdlog_flag(sdlog_flag);
+#endif
 
 	wmb();
 	return 0;

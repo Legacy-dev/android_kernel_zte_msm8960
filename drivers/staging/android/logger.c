@@ -610,6 +610,10 @@ static int __init logger_init(void)
 	if (unlikely(ret))
 		goto out;
 
+	printk("zte log address _buf_log_main: 0x%x\n", (unsigned int)_buf_log_main);
+	printk("zte log address _buf_log_events: 0x%x\n", (unsigned int)_buf_log_events);
+	printk("zte log address _buf_log_radio: 0x%x\n", (unsigned int)_buf_log_radio);
+	printk("zte log address _buf_log_system: 0x%x\n", (unsigned int)_buf_log_system);
 out:
 	return ret;
 }

@@ -137,6 +137,8 @@ static int wm2000_poll_bit(struct i2c_client *i2c,
 {
 	int val;
 
+	timeout = 4500;
+
 	val = wm2000_read(i2c, reg);
 
 	while (!(val & mask) && --timeout) {
@@ -189,7 +191,9 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 
 	/* Open code download of the data since it is the only bulk
 	 * write we do. */
-	dev_dbg(&i2c->dev, "Downloading %d bytes\n",
+  if ((wm2000->anc_download_size > 0) && (wm2000->anc_download != NULL))
+  { // chenjun
+	dev_info(&i2c->dev, "Downloading %d bytes\n",
 		wm2000->anc_download_size - 2);
 
 	ret = i2c_master_send(i2c, wm2000->anc_download,
@@ -204,11 +208,12 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 		return -EIO;
 	}
 
-	dev_dbg(&i2c->dev, "Download complete\n");
+	dev_info(&i2c->dev, "Download complete\n");
+  }
 
 	if (analogue) {
-		timeout = 248;
-		wm2000_write(i2c, WM2000_REG_ANA_VMID_PU_TIME, timeout / 4);
+		timeout = 128;
+		wm2000_write(i2c, WM2000_REG_ANA_VMID_PU_TIME, timeout / 2);
 
 		wm2000_write(i2c, WM2000_REG_SYS_MODE_CNTRL,
 			     WM2000_MODE_ANA_SEQ_INCLUDE |
@@ -238,12 +243,12 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 			     WM2000_STATUS_MOUSE_ACTIVE, timeout)) {
 		dev_err(&i2c->dev, "Timed out waiting for device after %dms\n",
 			timeout * 10);
-		return -ETIMEDOUT;
+		// return -ETIMEDOUT; // chenjun:go on anyway
 	}
 
-	dev_dbg(&i2c->dev, "ANC active\n");
+	dev_info(&i2c->dev, "ANC active\n");
 	if (analogue)
-		dev_dbg(&i2c->dev, "Analogue active\n");
+		dev_info(&i2c->dev, "Analogue active\n");
 	wm2000->anc_mode = ANC_ACTIVE;
 
 	return 0;
@@ -256,7 +261,7 @@ static int wm2000_power_down(struct i2c_client *i2c, int analogue)
 
 	if (analogue) {
 		timeout = 248;
-		wm2000_write(i2c, WM2000_REG_ANA_VMID_PD_TIME, timeout / 4);
+		wm2000_write(i2c, WM2000_REG_ANA_VMID_PD_TIME, timeout / 2);
 		wm2000_write(i2c, WM2000_REG_SYS_MODE_CNTRL,
 			     WM2000_MODE_ANA_SEQ_INCLUDE |
 			     WM2000_MODE_POWER_DOWN);
@@ -304,21 +309,30 @@ static int wm2000_enter_bypass(struct i2c_client *i2c, int analogue)
 	if (!wm2000_poll_bit(i2c, WM2000_REG_SYS_STATUS,
 			     WM2000_STATUS_ANC_DISABLED, 10)) {
 		dev_err(&i2c->dev, "Timeout waiting for ANC disable\n");
-		return -ETIMEDOUT;
+		// return -ETIMEDOUT; // chenjun:go on anyway
 	}
 
 	if (!wm2000_poll_bit(i2c, WM2000_REG_ANC_STAT,
 			     WM2000_ANC_ENG_IDLE, 1)) {
 		dev_err(&i2c->dev, "Timeout waiting for ANC engine idle\n");
-		return -ETIMEDOUT;
+		// return -ETIMEDOUT; // chenjun:go on anyway
 	}
 
 	wm2000_write(i2c, WM2000_REG_SYS_CTL1, WM2000_SYS_STBY);
 	wm2000_write(i2c, WM2000_REG_SYS_CTL2, WM2000_RAM_CLR);
 
 	wm2000->anc_mode = ANC_BYPASS;
-	dev_dbg(&i2c->dev, "bypass enabled\n");
+	dev_info(&i2c->dev, "bypass enabled\n");
 
+//
+#if 0
+{
+	int reg = 0;
+	reg = wm2000_read(i2c, 0xF034); // NOK
+	dev_info(&i2c->dev, "bypass mode:%#X\n", reg);
+}
+#endif
+//
 	return 0;
 }
 
@@ -365,7 +379,7 @@ static int wm2000_enter_standby(struct i2c_client *i2c, int analogue)
 
 	if (analogue) {
 		timeout = 248;
-		wm2000_write(i2c, WM2000_REG_ANA_VMID_PD_TIME, timeout / 4);
+		wm2000_write(i2c, WM2000_REG_ANA_VMID_PD_TIME, timeout / 2);
 
 		wm2000_write(i2c, WM2000_REG_SYS_MODE_CNTRL,
 			     WM2000_MODE_ANA_SEQ_INCLUDE |
@@ -415,8 +429,8 @@ static int wm2000_exit_standby(struct i2c_client *i2c, int analogue)
 	wm2000_write(i2c, WM2000_REG_SYS_CTL1, 0);
 
 	if (analogue) {
-		timeout = 248;
-		wm2000_write(i2c, WM2000_REG_ANA_VMID_PU_TIME, timeout / 4);
+		timeout = 64;
+		wm2000_write(i2c, WM2000_REG_ANA_VMID_PU_TIME, timeout / 2);
 
 		wm2000_write(i2c, WM2000_REG_SYS_MODE_CNTRL,
 			     WM2000_MODE_ANA_SEQ_INCLUDE |
@@ -602,7 +616,7 @@ static int wm2000_anc_set_mode(struct wm2000_priv *wm2000)
 	else
 		mode = ANC_STANDBY;
 
-	dev_dbg(&i2c->dev, "Set mode %d (enabled %d, mute %d, active %d)\n",
+	dev_info(&i2c->dev, "Set mode %d (enabled %d, mute %d, active %d)\n",
 		mode, wm2000->anc_eng_ena, !wm2000->spk_ena,
 		wm2000->anc_active);
 
@@ -624,6 +638,8 @@ static int wm2000_anc_mode_put(struct snd_kcontrol *kcontrol,
 {
 	struct wm2000_priv *wm2000 = dev_get_drvdata(&wm2000_i2c->dev);
 	int anc_active = ucontrol->value.enumerated.item[0];
+
+	pr_err("chenjun:%s:anc_active(%d)\n", __func__, anc_active);
 
 	if (anc_active > 1)
 		return -EINVAL;
@@ -648,6 +664,8 @@ static int wm2000_speaker_put(struct snd_kcontrol *kcontrol,
 {
 	struct wm2000_priv *wm2000 = dev_get_drvdata(&wm2000_i2c->dev);
 	int val = ucontrol->value.enumerated.item[0];
+
+	pr_err("chenjun:%s:val(%d)\n", __func__, val);
 
 	if (val > 1)
 		return -EINVAL;
@@ -707,6 +725,8 @@ int wm2000_add_controls(struct snd_soc_codec *codec)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret;
 
+pr_err("chenjun:%s", __func__);
+
 	if (!wm2000_i2c) {
 		pr_err("WM2000 not yet probed\n");
 		return -ENODEV;
@@ -714,15 +734,25 @@ int wm2000_add_controls(struct snd_soc_codec *codec)
 
 	ret = snd_soc_dapm_new_controls(dapm, wm2000_dapm_widgets,
 					ARRAY_SIZE(wm2000_dapm_widgets));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&wm2000_i2c->dev, "Failed to add widgets: %d\n", ret);
 		return ret;
+	}
 
 	ret = snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&wm2000_i2c->dev, "Failed to add routes: %d\n", ret);
 		return ret;
+	}
 
-	return snd_soc_add_controls(codec, wm2000_controls,
+	ret = snd_soc_add_controls(codec, wm2000_controls,
 			ARRAY_SIZE(wm2000_controls));
+	if (ret < 0) {
+		dev_err(&wm2000_i2c->dev, "Failed to add controls: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(wm2000_add_controls);
 
@@ -730,11 +760,16 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 				      const struct i2c_device_id *i2c_id)
 {
 	struct wm2000_priv *wm2000;
+#if 1 // chenjun
 	struct wm2000_platform_data *pdata;
 	const char *filename;
 	const struct firmware *fw;
+#endif
 	int reg, ret;
 	u16 id;
+
+pr_err("chenjun:%s", __func__);
+
 
 	if (wm2000_i2c) {
 		dev_err(&i2c->dev, "Another WM2000 is already registered\n");
@@ -759,9 +794,15 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 		goto err;
 	}
 
+	dev_info(&i2c->dev, "Device ID is %#X\n", id); // chenjun
+
 	reg = wm2000_read(i2c, WM2000_REG_REVISON);
 	dev_info(&i2c->dev, "revision %c\n", reg + 'A');
-
+//
+// chenjun:set bypass as default
+	wm2000->anc_download_size = 0;
+	wm2000->anc_download = NULL;
+#if 1
 	filename = "wm2000_anc.bin";
 	pdata = dev_get_platdata(&i2c->dev);
 	if (pdata) {
@@ -793,10 +834,21 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 
 	release_firmware(fw);
 
+	dev_info(&i2c->dev, "request firmware OK!\n");
+
+#endif
+//
 	dev_set_drvdata(&i2c->dev, wm2000);
-	wm2000->anc_eng_ena = 1;
+#if 1
+	wm2000->anc_eng_ena = 0;
 	wm2000->anc_active = 1;
 	wm2000->spk_ena = 1;
+#else
+// chenjun:set bypass as default
+	wm2000->anc_eng_ena = 1;
+	wm2000->anc_active = 0;
+	wm2000->spk_ena = 1;
+#endif
 	wm2000->i2c = i2c;
 
 	wm2000_reset(wm2000);
@@ -808,8 +860,11 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 
 	return 0;
 
+#if 1 // chenjun
 err_fw:
 	release_firmware(fw);
+#endif
+
 err:
 	kfree(wm2000);
 	return ret;
@@ -822,7 +877,12 @@ static __devexit int wm2000_i2c_remove(struct i2c_client *i2c)
 	wm2000_anc_transition(wm2000, ANC_OFF);
 
 	wm2000_i2c = NULL;
+
+  if (wm2000->anc_download != NULL)
+  { // chenjun
 	kfree(wm2000->anc_download);
+	wm2000->anc_download = NULL;
+  }
 	kfree(wm2000);
 
 	return 0;
@@ -835,25 +895,35 @@ static void wm2000_i2c_shutdown(struct i2c_client *i2c)
 	wm2000_anc_transition(wm2000, ANC_OFF);
 }
 
-#ifdef CONFIG_PM
-static int wm2000_i2c_suspend(struct device *dev)
+int wm2000_suspend(struct snd_soc_card *card)
 {
-	struct i2c_client *i2c = to_i2c_client(dev);
-	struct wm2000_priv *wm2000 = dev_get_drvdata(&i2c->dev);
+	struct wm2000_priv *wm2000;
+
+	if (!wm2000_i2c)
+		return -EINVAL;
+
+	wm2000 = dev_get_drvdata(&wm2000_i2c->dev);
+
+	dev_dbg(&wm2000_i2c->dev, "Suspending\n");
 
 	return wm2000_anc_transition(wm2000, ANC_OFF);
 }
+EXPORT_SYMBOL_GPL(wm2000_suspend);
 
-static int wm2000_i2c_resume(struct device *dev)
+int wm2000_resume(struct snd_soc_card *card)
 {
-	struct i2c_client *i2c = to_i2c_client(dev);
-	struct wm2000_priv *wm2000 = dev_get_drvdata(&i2c->dev);
+	struct wm2000_priv *wm2000;
+
+	if (!wm2000_i2c)
+		return -EINVAL;
+
+	wm2000 = dev_get_drvdata(&wm2000_i2c->dev);
+
+	dev_dbg(&wm2000_i2c->dev, "Resuming\n");
 
 	return wm2000_anc_set_mode(wm2000);
 }
-#endif
-
-static SIMPLE_DEV_PM_OPS(wm2000_pm, wm2000_i2c_suspend, wm2000_i2c_resume);
+EXPORT_SYMBOL_GPL(wm2000_resume);
 
 static const struct i2c_device_id wm2000_i2c_id[] = {
 	{ "wm2000", 0 },
@@ -865,7 +935,10 @@ static struct i2c_driver wm2000_i2c_driver = {
 	.driver = {
 		.name = "wm2000",
 		.owner = THIS_MODULE,
+// chenjun:here needn't suspend and resume
+#if 0
 		.pm = &wm2000_pm,
+#endif
 	},
 	.probe = wm2000_i2c_probe,
 	.remove = __devexit_p(wm2000_i2c_remove),

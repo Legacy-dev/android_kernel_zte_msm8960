@@ -18,6 +18,11 @@
 #include <mach/camera.h>
 #include <mach/gpiomux.h>
 
+
+
+
+
+
 int msm_cam_clk_enable(struct device *dev, struct msm_cam_clk_info *clk_info,
 		struct clk **clk_ptr, int num_clk, int enable)
 {
@@ -78,6 +83,7 @@ int msm_camera_config_vreg(struct device *dev, struct camera_vreg_t *cam_vreg,
 	if (config) {
 		for (i = 0; i < num_vreg; i++) {
 			curr_vreg = &cam_vreg[i];
+			if(reg_ptr[i]==NULL){
 			reg_ptr[i] = regulator_get(dev,
 				curr_vreg->reg_name);
 			if (IS_ERR(reg_ptr[i])) {
@@ -112,7 +118,7 @@ int msm_camera_config_vreg(struct device *dev, struct camera_vreg_t *cam_vreg,
 					}
 				}
 			}
-		}
+		}}
 	} else {
 		for (i = num_vreg-1; i >= 0; i--) {
 			curr_vreg = &cam_vreg[i];
@@ -188,7 +194,7 @@ disable_vreg:
 int msm_camera_request_gpio_table(struct msm_camera_sensor_info *sinfo,
 	int gpio_en)
 {
-	int rc = 0;
+	int rc = 0,i;
 	struct msm_camera_gpio_conf *gpio_conf =
 		sinfo->sensor_platform_info->gpio_conf;
 
@@ -205,12 +211,14 @@ int msm_camera_request_gpio_table(struct msm_camera_sensor_info *sinfo,
 				cam_gpiomux_conf_tbl,
 				gpio_conf->cam_gpiomux_conf_tbl_size);
 		}
+		#if 0
 		rc = gpio_request_array(gpio_conf->cam_gpio_common_tbl,
 				gpio_conf->cam_gpio_common_tbl_size);
 		if (rc < 0) {
 			pr_err("%s common gpio request failed\n", __func__);
 			return rc;
 		}
+		
 		rc = gpio_request_array(gpio_conf->cam_gpio_req_tbl,
 				gpio_conf->cam_gpio_req_tbl_size);
 		if (rc < 0) {
@@ -219,13 +227,37 @@ int msm_camera_request_gpio_table(struct msm_camera_sensor_info *sinfo,
 				gpio_conf->cam_gpio_common_tbl_size);
 			return rc;
 		}
+		#else
+		for (i = 0; i < gpio_conf->cam_gpio_common_tbl_size; i++){
+			rc=gpio_request_one(gpio_conf->cam_gpio_common_tbl[i].gpio,
+				gpio_conf->cam_gpio_common_tbl[i].flags, gpio_conf->cam_gpio_common_tbl[i].label);
+			if(rc!=0){
+			gpio_free(gpio_conf->cam_gpio_common_tbl[i].gpio);
+			mdelay(1);
+			rc=gpio_request_one(gpio_conf->cam_gpio_common_tbl[i].gpio,
+				gpio_conf->cam_gpio_common_tbl[i].flags, gpio_conf->cam_gpio_common_tbl[i].label);
+			}
+		}
+		for (i = 0; i < gpio_conf->cam_gpio_req_tbl_size; i++){
+			rc=gpio_request_one(gpio_conf->cam_gpio_req_tbl[i].gpio,
+				gpio_conf->cam_gpio_req_tbl[i].flags, gpio_conf->cam_gpio_req_tbl[i].label);
+			if(rc!=0){
+			gpio_free(gpio_conf->cam_gpio_req_tbl[i].gpio);
+			mdelay(1);
+			rc=gpio_request_one(gpio_conf->cam_gpio_req_tbl[i].gpio,
+				gpio_conf->cam_gpio_req_tbl[i].flags, gpio_conf->cam_gpio_req_tbl[i].label);
+			}
+	
+		}
+		#endif
+		
 	} else {
 		gpio_free_array(gpio_conf->cam_gpio_req_tbl,
 				gpio_conf->cam_gpio_req_tbl_size);
 		gpio_free_array(gpio_conf->cam_gpio_common_tbl,
 			gpio_conf->cam_gpio_common_tbl_size);
 	}
-	return rc;
+	return 0;
 }
 
 int msm_camera_config_gpio_table(struct msm_camera_sensor_info *sinfo,
@@ -245,11 +277,380 @@ int msm_camera_config_gpio_table(struct msm_camera_sensor_info *sinfo,
 		}
 	} else {
 		for (i = gpio_conf->cam_gpio_set_tbl_size - 1; i >= 0; i--) {
+			#if 0
 			if (gpio_conf->cam_gpio_set_tbl[i].flags)
 				gpio_set_value_cansleep(
 					gpio_conf->cam_gpio_set_tbl[i].gpio,
 					GPIOF_OUT_INIT_LOW);
+			#else
+			gpio_set_value_cansleep(
+				gpio_conf->cam_gpio_set_tbl[i].gpio,
+				gpio_conf->cam_gpio_set_tbl[i].flags);
+			usleep_range(gpio_conf->cam_gpio_set_tbl[i].delay,
+				gpio_conf->cam_gpio_set_tbl[i].delay + 1000);
+			#endif
 		}
 	}
 	return rc;
 }
+#if defined CONFIG_MACH_DANA  ||defined CONFIG_MACH_FROSTY||defined CONFIG_MACH_JARVIS || defined CONFIG_MACH_KISKA
+
+static bool hasvreged=0;
+//static struct regulator *mipi_csi_vdd;
+#if defined (CONFIG_OV5640)||defined (CONFIG_OV7692)||defined (CONFIG_S5K5CAGA)||defined (CONFIG_MT9M114)
+static struct regulator *cam_vdig;
+#endif
+int msm_camera_power_on(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{		int rc=0;
+		if(hasvreged==0){
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+		rc = msm_camera_config_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: regulator on failed\n", __func__);
+			goto config_vreg_failed;
+		}
+		
+		rc = msm_camera_enable_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: enable regulator failed\n", __func__);
+			goto enable_vreg_failed;
+		}
+		
+		#if defined (CONFIG_OV5640)||defined (CONFIG_OV7692)||defined (CONFIG_S5K5CAGA)||defined (CONFIG_MT9M114) 
+		if (cam_vdig == NULL) {
+		cam_vdig = regulator_get(dev, "cam_vdig");
+		if (IS_ERR(cam_vdig)) {
+			pr_err("%s: VREG CAM VDIG get failed\n", __func__);
+		}
+		if (regulator_enable(cam_vdig)) {
+				pr_err("%s: VREG CAM VDIG enable failed\n", __func__);
+			}
+		}
+		
+		#endif	
+		#ifdef CONFIG_OV8820
+		rc = gpio_request(9,"SENSOR_NAME");
+		if (!rc) {
+			pr_err("%s: gpio_request 09 OK\n", __func__);
+			gpio_direction_output(9,1);
+			usleep_range(1000, 2000);
+			mdelay(1);
+		} else {
+			gpio_free(9);
+			mdelay(1);
+			rc = gpio_request(9,"SENSOR_NAME");
+			if (!rc){
+			pr_err("%s: gpio_request 09 OK\n", __func__);
+			gpio_direction_output(9,1);
+			usleep_range(1000, 2000);
+			mdelay(1);
+			}else{
+			pr_err("%s: gpio_request 09 failed\n", __func__);
+			}
+		}
+		#endif
+		
+		
+		hasvreged=1;
+		return rc;
+enable_vreg_failed:
+	msm_camera_config_vreg(dev,
+		sinfo->sensor_platform_info->cam_vreg,
+		sinfo->sensor_platform_info->num_vreg,
+		reg_ptr, 0);
+config_vreg_failed:
+	msm_camera_request_gpio_table(sinfo, 0);
+	return rc;
+
+		}else{
+	
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+
+	return 0;
+		}
+		
+}
+#elif defined CONFIG_MACH_ELDEN || defined CONFIG_MACH_ILIAMNA
+static bool hasvreged=0;
+//static struct regulator *mipi_csi_vdd;
+#if defined (CONFIG_OV5640)||defined (CONFIG_OV7692)
+static struct regulator *cam_vio;
+#endif
+int msm_camera_power_on(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{		int rc=0;
+		if(hasvreged==0){
+		
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+		rc = msm_camera_config_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: regulator on failed\n", __func__);
+			goto config_vreg_failed;
+		}
+		
+		rc = msm_camera_enable_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: enable regulator failed\n", __func__);
+			goto enable_vreg_failed;
+		}
+		
+		#if defined (CONFIG_OV5640)||defined (CONFIG_OV7692)
+		if (cam_vio == NULL) {
+		cam_vio = regulator_get(dev, "cam_vio");
+		if (IS_ERR(cam_vio)) {
+			pr_err("%s: VREG CAM VIODD get failed\n", __func__);
+		}
+		if (regulator_enable(cam_vio)) {
+				pr_err("%s: VREG CAM VIODD enable failed\n", __func__);
+			}
+		}
+		#endif	
+		hasvreged=1;
+		return rc;
+enable_vreg_failed:
+	msm_camera_config_vreg(dev,
+		sinfo->sensor_platform_info->cam_vreg,
+		sinfo->sensor_platform_info->num_vreg,
+		reg_ptr, 0);
+config_vreg_failed:
+	msm_camera_request_gpio_table(sinfo, 0);
+	return rc;
+
+		}else{
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+
+	return 0;
+		}
+		
+}
+
+#else
+static bool hasvreged=0;
+//static struct regulator *mipi_csi_vdd;
+int msm_camera_power_on(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{		
+		int rc=0;
+		if(hasvreged==0){
+		
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+		rc = msm_camera_config_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: regulator on failed\n", __func__);
+			goto config_vreg_failed;
+		}
+		
+		rc = msm_camera_enable_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 1);
+		if (rc < 0) {
+			pr_err("%s: enable regulator failed\n", __func__);
+			goto enable_vreg_failed;
+		}
+
+	hasvreged=1;
+	return rc;
+}else{
+		pr_err("%s: %d\n", __func__, __LINE__);
+		#if 0
+		if (mipi_csi_vdd == NULL) {
+		mipi_csi_vdd = regulator_get(dev, "mipi_csi_vdd");
+		if (IS_ERR(mipi_csi_vdd)) {
+			pr_err("%s: VREG CAM mipi_csi_vdd get failed\n", __func__);
+			return rc;
+		}
+		rc = regulator_set_voltage(
+				mipi_csi_vdd,
+				1200000,
+				1200000);
+		rc = regulator_set_optimum_mode(
+						mipi_csi_vdd,
+						20000);
+		if (regulator_enable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM mipi_csi_vdd enable failed\n", __func__);
+				return rc;
+			}
+		}
+		#endif
+
+	return 0;
+}
+enable_vreg_failed:
+	msm_camera_config_vreg(dev,
+		sinfo->sensor_platform_info->cam_vreg,
+		sinfo->sensor_platform_info->num_vreg,
+		reg_ptr, 0);
+config_vreg_failed:
+	msm_camera_request_gpio_table(sinfo, 0);
+	return rc;
+
+}
+#endif
+#if 0
+int msm_camera_power_off(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{		
+		int rc=0;
+		
+		#if defined (CONFIG_OV5640) || defined (CONFIG_OV7692)
+		if (regulator_disable(cam_vdig)) {
+				pr_err("%s: VREG CAM VDIG enable failed\n", __func__);
+			}
+		regulator_put(cam_vdig);
+		cam_vdig = NULL;
+		#endif
+		
+		 rc= msm_camera_enable_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 0);
+		rc= msm_camera_config_vreg(dev,
+				sinfo->sensor_platform_info->cam_vreg,
+				sinfo->sensor_platform_info->num_vreg,
+				reg_ptr, 0);
+				
+	return rc;
+
+	
+}
+#endif
+#if 1
+int msm_camera_power_off(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{				
+		return 0;
+}
+
+#else//power off mipi
+int msm_camera_power_off(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr)
+{		
+		
+		if (regulator_disable(mipi_csi_vdd)) {
+				pr_err("%s: VREG CAM VDIG enable failed\n", __func__);
+			}
+		regulator_set_optimum_mode(mipi_csi_vdd, 0);
+		regulator_set_voltage(mipi_csi_vdd,0, 1200000);
+		regulator_put(mipi_csi_vdd);
+		mipi_csi_vdd = NULL;
+		
+		return 0;
+
+}
+#endif

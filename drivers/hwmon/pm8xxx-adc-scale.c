@@ -25,6 +25,7 @@
    and provided to the battery driver in the units desired for
    their framework which is 0.1DegC. True resolution of 0.1DegC
    will result in the below table size to increase by 10 times */
+#if 0   
 static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
 	{-300,	1642},
 	{-200,	1544},
@@ -110,6 +111,59 @@ static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
 	{780,	208},
 	{790,	203}
 };
+#else
+static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] ={
+ #if defined CONFIG_ZTE_NON_JEITA_COMPLIANCE //pullup Rs1:68k;Rs2:18.2k
+         {-300, 1675},
+         {-250, 1635},
+         {-200, 1585},
+         {-150, 1526},
+         {-100, 1458},
+         {-50, 1381},
+         {0, 1299},
+         {50, 1212},
+         {100, 1125},
+         {150, 1039},
+         {200, 957},
+         {250, 881},
+         {300, 811},
+         {350, 749},
+         {400, 695},
+         {450, 647},
+         {500, 607},
+         {550, 572},
+         {600, 543},
+         {650, 518},
+         {700, 497},
+         {750, 479},
+         {800, 465},
+  #else//pullup Rs1:68k;Rs2:6.8k
+	{-300,	1673},
+	{-250,	1629},
+	{-200,	1577},
+	{-150,	1515},
+	{-100,	1441},
+	{-50,	1358},
+	{0,	1267},
+	{50,	1172},
+	{100,	1071},
+	{150,	968},
+	{200,	874},
+	{250,	783},
+	{300,	693},
+	{350,	619},
+	{400,	548},
+	{450,	495},
+	{500,	438},
+	{550,	392},
+	{600,	358},
+	{650,	325},
+	{700,	302},
+	{750,	279},
+	{800,	260}
+	#endif
+};
+#endif
 
 static const struct pm8xxx_adc_map_pt adcmap_pa_therm[] = {
 	{1677,	-30},

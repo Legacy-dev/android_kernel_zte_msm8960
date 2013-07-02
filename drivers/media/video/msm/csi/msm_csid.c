@@ -18,7 +18,7 @@
 #include <media/msm_isp.h>
 #include "msm_csid.h"
 #include "msm.h"
-
+extern int camera_is_working;
 #define V4L2_IDENT_CSID                            50002
 
 /* MIPI	CSID registers */
@@ -88,8 +88,8 @@ static void msm_csid_set_debug_reg(void __iomem *csidbase,
 {
 	uint32_t val = 0;
 	val = ((1 << csid_params->lane_cnt) - 1) << 20;
-	msm_camera_io_w(0x7f010800 | val, csidbase + CSID_IRQ_MASK_ADDR);
-	msm_camera_io_w(0x7f010800 | val, csidbase + CSID_IRQ_CLEAR_CMD_ADDR);
+	msm_io_w(0x7ff10800 | val, csidbase + CSID_IRQ_MASK_ADDR);
+	msm_io_w(0x7ff10800 | val, csidbase + CSID_IRQ_CLEAR_CMD_ADDR);
 }
 #else
 static void msm_csid_set_debug_reg(void __iomem *csidbase,
@@ -172,6 +172,7 @@ static int msm_csid_init(struct v4l2_subdev *sd, uint32_t *csid_version)
 		return rc;
 	}
 
+	
 	rc = msm_camera_config_vreg(&csid_dev->pdev->dev, csid_vreg_info,
 		ARRAY_SIZE(csid_vreg_info), &csid_dev->csi_vdd, 1);
 	if (rc < 0) {
@@ -185,7 +186,7 @@ static int msm_csid_init(struct v4l2_subdev *sd, uint32_t *csid_version)
 		pr_err("%s: regulator enable failed\n", __func__);
 		goto vreg_enable_failed;
 	}
-
+	camera_is_working=1;
 	rc = msm_cam_clk_enable(&csid_dev->pdev->dev, csid_clk_info,
 		csid_dev->csid_clk, ARRAY_SIZE(csid_clk_info), 1);
 	if (rc < 0) {
@@ -204,11 +205,13 @@ static int msm_csid_init(struct v4l2_subdev *sd, uint32_t *csid_version)
 clk_enable_failed:
 	msm_camera_enable_vreg(&csid_dev->pdev->dev, csid_vreg_info,
 		ARRAY_SIZE(csid_vreg_info), &csid_dev->csi_vdd, 0);
+
 vreg_enable_failed:
 	msm_camera_config_vreg(&csid_dev->pdev->dev, csid_vreg_info,
 		ARRAY_SIZE(csid_vreg_info), &csid_dev->csi_vdd, 0);
 vreg_config_failed:
 	iounmap(csid_dev->base);
+
 	csid_dev->base = NULL;
 	return rc;
 }
@@ -233,7 +236,9 @@ static int msm_csid_release(struct v4l2_subdev *sd)
 
 	msm_camera_config_vreg(&csid_dev->pdev->dev, csid_vreg_info,
 		ARRAY_SIZE(csid_vreg_info), &csid_dev->csi_vdd, 0);
-
+	
+	camera_is_working=0;
+	
 	iounmap(csid_dev->base);
 	csid_dev->base = NULL;
 	return 0;

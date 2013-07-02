@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,7 +16,6 @@
  */
 
 /* #define DEBUG */
-
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -33,7 +32,8 @@
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 #include <linux/gpio.h>
-#include <mach/socinfo.h>
+#include <linux/of.h>
+#include <linux/of_i2c.h>
 
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("0.2");
@@ -166,6 +166,9 @@ struct qup_i2c_dev {
 	struct mutex                 mlock;
 	void                         *complete;
 	int                          i2c_gpios[ARRAY_SIZE(i2c_rsrcs)];
+	#if defined(CONFIG_GSBI7_SHARE)
+	int use_gsbi_shared_mode; 
+	#endif
 };
 
 #ifdef DEBUG
@@ -307,19 +310,11 @@ qup_update_state(struct qup_i2c_dev *dev, uint32_t state)
 /*
  * Before calling qup_config_core_on_en(), please make
  * sure that QuPE core is in RESET state.
- *
- * Configuration of CORE_ON_EN - BIT13 in QUP_CONFIG register
- * is only required for targets like 7x27a, where it needs
- * be turned on for disabling the QuPE pclks.
  */
 static void
 qup_config_core_on_en(struct qup_i2c_dev *dev)
 {
 	uint32_t status;
-
-	if (!(cpu_is_msm7x27a() || cpu_is_msm7x27aa() ||
-		 cpu_is_msm7x25a() || cpu_is_msm7x25aa()))
-		return;
 
 	status = readl_relaxed(dev->base + QUP_CONFIG);
 	status |= BIT(13);
@@ -338,7 +333,7 @@ qup_i2c_pwr_mgmt(struct qup_i2c_dev *dev, unsigned int state)
 	} else {
 		qup_update_state(dev, QUP_RESET_STATE);
 		clk_disable(dev->clk);
-                qup_config_core_on_en(dev);
+		qup_config_core_on_en(dev);
 		clk_disable(dev->pclk);
 	}
 }
@@ -767,7 +762,7 @@ qup_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		mutex_unlock(&dev->mlock);
 		return -EIO;
 	}
-
+        
 	if (dev->clk_state == 0) {
 		if (dev->clk_ctl == 0) {
 			if (dev->pdata->src_clk_rate > 0)
@@ -783,7 +778,8 @@ qup_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		int fs_div;
 		int hs_div;
 		uint32_t fifo_reg;
-
+		
+#ifndef CONFIG_GSBI7_SHARE
 		if (dev->gsbi) {
 			writel_relaxed(0x2 << 4, dev->gsbi);
 			/* GSBI memory is not in the same 1K region as other
@@ -794,6 +790,40 @@ qup_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 			 */
 			mb();
 		}
+		 dev_err(dev->dev,"no defconfig CONFIG_GSBI7_SHARE");
+#endif
+		
+#ifdef CONFIG_GSBI7_SHARE
+	  dev_err(dev->dev,"gsbi7 use_gsbi_shared_mode= %d ",dev->pdata->use_gsbi_shared_mode);
+
+	  if (dev->gsbi)
+	  {
+		  uint32_t gsbi_ctrl_reg;
+		  gsbi_ctrl_reg = readl_relaxed(dev->gsbi);
+
+		  dev_err(dev->dev,"isp dev->dev->init_name =%s \n",dev->dev->init_name);
+		  dev_err(dev->dev,"dev->use_gsbi_shared_mode=%d gsbi_ctrl_reg=%d",dev->use_gsbi_shared_mode,gsbi_ctrl_reg);
+
+		
+		      
+			  if(dev->use_gsbi_shared_mode)
+			  {
+			  writel_relaxed(0x1 << 4, dev->gsbi);
+			  dev_err(dev->dev," new isp use_gsbi_shared_mode \n");
+			  }
+	  		  else
+			  {
+			  writel_relaxed(0x2 << 4, dev->gsbi);
+			  dev_err(dev->dev,"new  isp  no use_gsbi_shared_mode \n");
+			  } 
+
+			  mb();
+		
+	  }
+#endif
+
+
+	  
 
 		fs_div = ((dev->pdata->src_clk_rate
 				/ dev->pdata->clk_freq) / 2) - 3;
@@ -1110,7 +1140,24 @@ qup_i2c_probe(struct platform_device *pdev)
 	gsbi_mem = NULL;
 	dev_dbg(&pdev->dev, "qup_i2c_probe\n");
 
-	pdata = pdev->dev.platform_data;
+	if (pdev->dev.of_node) {
+		struct device_node *node = pdev->dev.of_node;
+		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
+		if (!pdata)
+			return -ENOMEM;
+		ret = of_property_read_u32(node, "qcom,i2c-bus-freq",
+					&pdata->clk_freq);
+		if (ret)
+			goto get_res_failed;
+		ret = of_property_read_u32(node, "cell-index", &pdev->id);
+		if (ret)
+			goto get_res_failed;
+		/* Optional property */
+		of_property_read_u32(node, "qcom,i2c-src-freq",
+					&pdata->src_clk_rate);
+	} else
+		pdata = pdev->dev.platform_data;
+
 	if (!pdata) {
 		dev_err(&pdev->dev, "platform data not initialized\n");
 		return -ENOSYS;
@@ -1119,7 +1166,8 @@ qup_i2c_probe(struct platform_device *pdev)
 						"qup_phys_addr");
 	if (!qup_mem) {
 		dev_err(&pdev->dev, "no qup mem resource?\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto get_res_failed;
 	}
 
 	/*
@@ -1136,22 +1184,28 @@ qup_i2c_probe(struct platform_device *pdev)
 						"qup_err_intr");
 	if (!err_irq) {
 		dev_err(&pdev->dev, "no error irq resource?\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto get_res_failed;
 	}
 
 	qup_io = request_mem_region(qup_mem->start, resource_size(qup_mem),
 					pdev->name);
 	if (!qup_io) {
 		dev_err(&pdev->dev, "QUP region already claimed\n");
-		return -EBUSY;
+		ret = -EBUSY;
+		goto get_res_failed;
 	}
-	if (!pdata->use_gsbi_shared_mode) {
+#if defined(CONFIG_GSBI7_SHARE)
+{
 		gsbi_mem = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 							"gsbi_qup_i2c_addr");
 		if (!gsbi_mem) {
-			dev_err(&pdev->dev, "no gsbi mem resource?\n");
-			ret = -ENODEV;
-			goto err_res_failed;
+			dev_dbg(&pdev->dev, "Assume BLSP\n");
+			/*
+			 * BLSP core does not need protocol programming so this
+			 * resource is not expected
+			 */
+			goto blsp_core_init;
 		}
 		gsbi_io = request_mem_region(gsbi_mem->start,
 						resource_size(gsbi_mem),
@@ -1163,6 +1217,32 @@ qup_i2c_probe(struct platform_device *pdev)
 		}
 	}
 
+#else
+if (!pdata->use_gsbi_shared_mode) 
+{
+		gsbi_mem = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+							"gsbi_qup_i2c_addr");
+		if (!gsbi_mem) {
+			dev_dbg(&pdev->dev, "Assume BLSP\n");
+			/*
+			 * BLSP core does not need protocol programming so this
+			 * resource is not expected
+			 */
+			goto blsp_core_init;
+		}
+		gsbi_io = request_mem_region(gsbi_mem->start,
+						resource_size(gsbi_mem),
+						pdev->name);
+		if (!gsbi_io) {
+			dev_err(&pdev->dev, "GSBI region already claimed\n");
+			ret = -EBUSY;
+			goto err_res_failed;
+		}
+	}
+#endif
+
+
+blsp_core_init:
 	clk = clk_get(&pdev->dev, "core_clk");
 	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "Could not get core_clk\n");
@@ -1209,7 +1289,21 @@ qup_i2c_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto err_ioremap_failed;
 	}
+	
+#if defined(CONFIG_GSBI7_SHARE)
 
+	//debug for gsbi7 i2c
+	if (pdata->use_gsbi_shared_mode) 
+	{ 
+	dev_err(&pdev->dev,"use_gsbi_shared_mode=1 ");
+	dev->use_gsbi_shared_mode = 1; 
+	} 
+	else 
+	{ 
+	dev_err(&pdev->dev,"use_gsbi_shared_mode=0 ");
+	dev->use_gsbi_shared_mode = 0; 
+	} 
+#endif	
 	/* Configure GSBI block to use I2C functionality */
 	if (gsbi_mem) {
 		dev->gsbi = ioremap(gsbi_mem->start, resource_size(gsbi_mem));
@@ -1306,6 +1400,8 @@ qup_i2c_probe(struct platform_device *pdev)
 	dev->suspended = 0;
 	mutex_init(&dev->mlock);
 	dev->clk_state = 0;
+	clk_prepare(dev->clk);
+	clk_prepare(dev->pclk);
 	setup_timer(&dev->pwr_timer, qup_i2c_pwr_timer, (unsigned long) dev);
 
 	pm_runtime_set_active(&pdev->dev);
@@ -1319,8 +1415,11 @@ qup_i2c_probe(struct platform_device *pdev)
 			free_irq(dev->in_irq, dev);
 		}
 		free_irq(dev->err_irq, dev);
-	} else
+	} else {
+		if (dev->dev->of_node)
+			of_i2c_register_devices(&dev->adapter);
 		return 0;
+	}
 
 
 err_request_irq_failed:
@@ -1344,6 +1443,9 @@ err_clk_get_failed:
 		release_mem_region(gsbi_mem->start, resource_size(gsbi_mem));
 err_res_failed:
 	release_mem_region(qup_mem->start, resource_size(qup_mem));
+get_res_failed:
+	if (pdev->dev.of_node)
+		kfree(pdata);
 	return ret;
 }
 
@@ -1368,6 +1470,8 @@ qup_i2c_remove(struct platform_device *pdev)
 	}
 	free_irq(dev->err_irq, dev);
 	i2c_del_adapter(&dev->adapter);
+	clk_unprepare(dev->clk);
+	clk_unprepare(dev->pclk);
 	clk_put(dev->clk);
 	clk_put(dev->pclk);
 	qup_i2c_free_gpios(dev);
@@ -1385,6 +1489,8 @@ qup_i2c_remove(struct platform_device *pdev)
 	qup_mem = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						"qup_phys_addr");
 	release_mem_region(qup_mem->start, resource_size(qup_mem));
+	if (dev->dev->of_node)
+		kfree(dev->pdata);
 	kfree(dev);
 	return 0;
 }
@@ -1402,6 +1508,8 @@ static int qup_i2c_suspend(struct device *device)
 	del_timer_sync(&dev->pwr_timer);
 	if (dev->clk_state != 0)
 		qup_i2c_pwr_mgmt(dev, 0);
+	clk_unprepare(dev->clk);
+	clk_unprepare(dev->pclk);
 	qup_i2c_free_gpios(dev);
 	return 0;
 }
@@ -1411,6 +1519,8 @@ static int qup_i2c_resume(struct device *device)
 	struct platform_device *pdev = to_platform_device(device);
 	struct qup_i2c_dev *dev = platform_get_drvdata(pdev);
 	BUG_ON(qup_i2c_request_gpios(dev) != 0);
+	clk_prepare(dev->clk);
+	clk_prepare(dev->pclk);
 	dev->suspended = 0;
 	return 0;
 }
@@ -1448,6 +1558,13 @@ static const struct dev_pm_ops i2c_qup_dev_pm_ops = {
 	)
 };
 
+static struct of_device_id i2c_qup_dt_match[] = {
+	{
+		.compatible = "qcom,i2c-qup",
+	},
+	{}
+};
+
 static struct platform_driver qup_i2c_driver = {
 	.probe		= qup_i2c_probe,
 	.remove		= __devexit_p(qup_i2c_remove),
@@ -1455,6 +1572,7 @@ static struct platform_driver qup_i2c_driver = {
 		.name	= "qup_i2c",
 		.owner	= THIS_MODULE,
 		.pm = &i2c_qup_dev_pm_ops,
+		.of_match_table = i2c_qup_dt_match,
 	},
 };
 

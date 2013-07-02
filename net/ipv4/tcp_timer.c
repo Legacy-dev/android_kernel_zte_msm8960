@@ -316,7 +316,7 @@ static void tcp_probe_timer(struct sock *sk)
 /*
  *	The TCP retransmit timer.
  */
-
+extern int ondemand2_start;
 void tcp_retransmit_timer(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -326,6 +326,12 @@ void tcp_retransmit_timer(struct sock *sk)
 		goto out;
 
 	WARN_ON(tcp_write_queue_empty(sk));
+	if (ondemand2_start == 1){
+	    if ((tcp_time_stamp - tp->rcv_tstamp > 2*100) && ((1 << sk->sk_state) & TCPF_FIN_WAIT1)) {
+		tcp_write_err(sk);
+		goto out;
+	    }
+	}
 
 	if (!tp->snd_wnd && !sock_flag(sk, SOCK_DEAD) &&
 	    !((1 << sk->sk_state) & (TCPF_SYN_SENT | TCPF_SYN_RECV))) {

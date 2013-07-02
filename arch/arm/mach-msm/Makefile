@@ -46,6 +46,7 @@ obj-$(CONFIG_MSM_AVS_HW) += avs_hw.o
 obj-$(CONFIG_CPU_V6) += idle-v6.o
 obj-$(CONFIG_CPU_V7) += idle-v7.o
 obj-$(CONFIG_MSM_JTAG) += jtag.o
+obj-$(CONFIG_ZTE_ACPU_OVERCLOCK)		+= zte_krait_oc.o
 
 msm-etm-objs := etm.o
 obj-$(CONFIG_MSM_ETM) += msm-etm.o
@@ -183,6 +184,7 @@ obj-$(CONFIG_MSM_SYSMON_COMM) += sysmon.o
 obj-$(CONFIG_MSM_MODEM_8960) += modem-8960.o
 obj-$(CONFIG_MSM_LPASS_8960) += lpass-8960.o
 obj-$(CONFIG_MSM_WCNSS_SSR_8960) += wcnss-ssr-8960.o
+obj-$(CONFIG_MSM_WCNSS_SSR_8960) += board-zte-wifi.o board-zte-ts.o
 
 ifdef CONFIG_CPU_IDLE
 	obj-$(CONFIG_ARCH_MSM8960) += cpuidle.o
@@ -229,7 +231,11 @@ obj-$(CONFIG_ARCH_MSM8960) += memory_topology.o
 obj-$(CONFIG_ARCH_MSM8960) += saw-regulator.o
 obj-$(CONFIG_ARCH_MSM8960) += devices-8960.o
 obj-$(CONFIG_ARCH_APQ8064) += devices-8960.o devices-8064.o
-board-8960-all-objs += board-8960.o board-8960-camera.o board-8960-display.o board-8960-pmic.o board-8960-storage.o board-8960-gpiomux.o
+
+
+#board-8960-all-objs += board-8960.o board-8960-camera.o board-8960-display.o board-8960-pmic.o board-8960-storage.o board-8960-gpiomux.o
+board-8960-all-objs += board-8960-zte.o board-8960-camera.o board-8960-display.o board-8960-pmic.o board-8960-storage.o board-8960-gpiomux.o
+
 board-8930-all-objs += board-8930.o board-8930-camera.o board-8930-display.o board-8930-pmic.o board-8930-storage.o board-8930-gpiomux.o
 board-8064-all-objs += board-8064.o board-8064-pmic.o board-8064-storage.o board-8064-gpiomux.o board-8064-camera.o
 obj-$(CONFIG_MACH_MSM8960_SIM) += board-8960-all.o board-8960-regulator.o
@@ -316,4 +322,5 @@ endif
 obj-$(CONFIG_ARCH_MSM8960) += mdm2.o mdm_common.o
 obj-$(CONFIG_MSM_RTB) += msm_rtb.o
 obj-$(CONFIG_MSM_CACHE_ERP) += cache_erp.o
+obj-$(CONFIG_MSM_EBI_ERP) += ebi_erp.o
 obj-$(CONFIG_MSM_CACHE_DUMP) += msm_cache_dump.o

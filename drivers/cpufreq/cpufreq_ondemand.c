@@ -26,6 +26,10 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 
+static int debug_mask = 0;
+module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+
+
 /*
  * dbs is used in this file as a shortform for demandbased switching
  * It helps to keep variable names smaller, simpler
@@ -520,12 +524,22 @@ static void dbs_freq_increase(struct cpufreq_policy *p, unsigned int freq)
 			CPUFREQ_RELATION_L : CPUFREQ_RELATION_H);
 }
 
+#define ONDEMAND_LOWER_FREQ 1026000
+
 static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 {
+	/* Extrapolated load of this CPU */
+	unsigned int load_at_max_freq = 0;
 	unsigned int max_load_freq;
+	/* Current load across this CPU */
+	unsigned int cur_load = 0;
 
 	struct cpufreq_policy *policy;
 	unsigned int j;
+#if 1
+	static unsigned int phase = 0;
+	static unsigned int counter = 0;
+#endif
 
 	this_dbs_info->freq_lo = 0;
 	policy = this_dbs_info->cur_policy;
@@ -549,7 +563,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		struct cpu_dbs_info_s *j_dbs_info;
 		cputime64_t cur_wall_time, cur_idle_time, cur_iowait_time;
 		unsigned int idle_time, wall_time, iowait_time;
-		unsigned int load, load_freq;
+		unsigned int load_freq;
 		int freq_avg;
 
 		j_dbs_info = &per_cpu(od_cpu_dbs_info, j);
@@ -599,17 +613,25 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (unlikely(!wall_time || wall_time < idle_time))
 			continue;
 
-		load = 100 * (wall_time - idle_time) / wall_time;
-
+		cur_load = 100 * (wall_time - idle_time) / wall_time;
+#if 1
+		if (debug_mask)
+			pr_info("wall=%u,idle=%u,io=%u,load=%u\n",
+				wall_time,idle_time,iowait_time,cur_load);
+#endif
 		freq_avg = __cpufreq_driver_getavg(policy, j);
 		if (freq_avg <= 0)
 			freq_avg = policy->cur;
 
-		load_freq = load * freq_avg;
+		load_freq = cur_load * freq_avg;
 		if (load_freq > max_load_freq)
 			max_load_freq = load_freq;
 	}
+	/* calculate the scaled load across CPU */
+	load_at_max_freq = (cur_load * policy->cur)/policy->cpuinfo.max_freq;
 
+	cpufreq_notify_utilization(policy, load_at_max_freq);
+#if 0
 	/* Check for frequency increase */
 	if (max_load_freq > dbs_tuners_ins.up_threshold * policy->cur) {
 		/* If switching to max speed, apply sampling_down_factor */
@@ -619,7 +641,42 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		dbs_freq_increase(policy, policy->max);
 		return;
 	}
-
+#else
+	
+	/* Check for frequency increase */
+	if (max_load_freq > dbs_tuners_ins.up_threshold * policy->cur) {
+		/* If switching to max speed, apply sampling_down_factor */
+		if (counter < 5) {
+			counter++;
+			if (counter > 2) {
+				/* change to busy phase */
+				phase = 1;
+			}
+		}
+		if (phase == 0) {
+			/* idle phase */
+			dbs_freq_increase(policy, ONDEMAND_LOWER_FREQ);
+		} else {
+			/* busy phase */
+			if (policy->cur < policy->max)
+				this_dbs_info->rate_mult =
+					dbs_tuners_ins.sampling_down_factor;
+			dbs_freq_increase(policy, policy->max);
+		}
+		if (debug_mask)
+			printk("cur=%u\n",policy->cur);
+		return;
+	}
+#if 1
+ 	if (counter > 0){
+		counter--;
+		if (counter == 0) {
+			/* change to idle phase */
+			phase = 0;
+		}
+	}
+#endif
+#endif
 	/* Check for frequency decrease */
 	/* if we cannot reduce the frequency anymore, break out early */
 	if (policy->cur == policy->min)
@@ -753,10 +810,10 @@ static void dbs_refresh_callback(struct work_struct *unused)
 		return;
 	}
 
-	if (policy->cur < policy->max) {
-		policy->cur = policy->max;
+	if (policy->cur < policy->max/2) {
+		policy->cur = policy->max/2;
 
-		__cpufreq_driver_target(policy, policy->max,
+		__cpufreq_driver_target(policy, policy->max/2,
 					CPUFREQ_RELATION_L);
 		this_dbs_info->prev_cpu_idle = get_cpu_idle_time(cpu,
 				&this_dbs_info->prev_cpu_wall);
@@ -764,10 +821,23 @@ static void dbs_refresh_callback(struct work_struct *unused)
 	unlock_policy_rwsem_write(cpu);
 }
 
+#ifndef CONFIG_ZTE_PLATFORM_ONDEMAND
+#define CONFIG_ZTE_PLATFORM_ONDEMAND 1
+#endif
 static void dbs_input_event(struct input_handle *handle, unsigned int type,
 		unsigned int code, int value)
 {
 	int i;
+
+#ifdef CONFIG_ZTE_PLATFORM_ONDEMAND
+	if(!((strstr(handle->dev->name, "touch"))	//touchscreen needs to increase cpufreq
+	#ifndef CONFIG_ZTE_NO_CPUFREQ_ONDEMAND_KEYBOARD	//LHX_PM_20110706_01 not change cpufreq while keyboard input
+		|| (strstr(handle->dev->name, "keypad"))	//keypad  needs to increase cpufreq
+	#endif		
+		))
+		return;	//no need to increase cpufreq if input is not touchscreen or keypad
+#endif
+
 
 	if ((dbs_tuners_ins.powersave_bias == POWERSAVE_BIAS_MAXLEVEL) ||
 		(dbs_tuners_ins.powersave_bias == POWERSAVE_BIAS_MINLEVEL)) {

@@ -15,7 +15,9 @@
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/scatterlist.h>
+#include <linux/delay.h>
 
+#include <linux/mmc/mmc.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include "queue.h"
@@ -46,12 +48,39 @@ static int mmc_prep_request(struct request_queue *q, struct request *req)
 
 	return BLKPREP_OK;
 }
+//ruanmeisi_20100603
+int mmc_send_status(struct mmc_card *card, u32 *status);
 
+int remove_all_req(struct mmc_queue *mq)
+{
+	int i = 0;
+	struct request_queue *q = mq->queue;
+	struct request *req = NULL;
+	if (NULL == mq) {
+		return 0;
+	}
+	spin_lock_irq(q->queue_lock);
+	while ((req = blk_fetch_request(q)) != NULL) {
+		int ret = 0;
+		do {
+			req->cmd_flags |= REQ_QUIET;
+			ret = __blk_end_request(req, -EIO,
+						blk_rq_cur_bytes(req));
+		} while (ret);
+		i ++;
+	}
+	spin_unlock_irq(q->queue_lock);
+
+	printk(KERN_ERR"rms:%s %d req %d\n", __FUNCTION__, __LINE__, i);
+	return i;
+}
 static int mmc_queue_thread(void *d)
 {
 	struct mmc_queue *mq = d;
 	struct request_queue *q = mq->queue;
 	struct request *req;
+	//ruanmeisi_20100603
+	int issue_ret = 0;
 
 #ifdef CONFIG_MMC_PERF_PROFILING
 	ktime_t start, diff;
@@ -66,6 +95,12 @@ static int mmc_queue_thread(void *d)
 	do {
 		req = NULL;	/* Must be set to NULL at each iteration */
 
+		//ruanmeisi_20100603
+		if (kthread_should_stop()) {
+			remove_all_req(mq);
+			break;
+		}
+		//end
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
 		req = blk_fetch_request(q);
@@ -89,25 +124,43 @@ static int mmc_queue_thread(void *d)
 			bytes_xfer = blk_rq_bytes(req);
 			if (rq_data_dir(req) == READ) {
 				start = ktime_get();
-				mq->issue_fn(mq, req);
+			issue_ret = mq->issue_fn(mq, req);
 				diff = ktime_sub(ktime_get(), start);
 				host->perf.rbytes_mmcq += bytes_xfer;
 				host->perf.rtime_mmcq =
 					ktime_add(host->perf.rtime_mmcq, diff);
 			} else {
 				start = ktime_get();
-				mq->issue_fn(mq, req);
+			issue_ret = mq->issue_fn(mq, req);
 				diff = ktime_sub(ktime_get(), start);
 				host->perf.wbytes_mmcq += bytes_xfer;
 				host->perf.wtime_mmcq =
 					ktime_add(host->perf.wtime_mmcq, diff);
 			}
 		} else {
-			mq->issue_fn(mq, req);
+			issue_ret = mq->issue_fn(mq, req);
 		}
 #else
-			mq->issue_fn(mq, req);
+				issue_ret = mq->issue_fn(mq, req);
 #endif
+
+		//ruanmeisi
+		if (0 == issue_ret) {
+			int err;
+			mmc_claim_host(mq->card->host);
+			err = mmc_send_status(mq->card, NULL);
+			mmc_release_host(mq->card->host);
+			if (err) {
+				printk(KERN_ERR "rms:%s: failed to get status (%d) maybe the card is removed\n",
+				       __func__, err);
+				//sdcard is removed?
+				mmc_detect_change(mq->card->host, 0);
+				msleep(500);
+				//set_current_state(TASK_INTERRUPTIBLE);
+				//schedule_timeout(HZ / 2);
+				continue;
+			}
+		}
 	} while (1);
 	up(&mq->thread_sem);
 

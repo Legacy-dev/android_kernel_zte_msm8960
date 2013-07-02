@@ -13,7 +13,7 @@
 #include <linux/rtc.h>
 
 #include "rtc-core.h"
-
+#include <linux/zte_hibernate.h>
 
 /* device attributes */
 
@@ -116,17 +116,6 @@ rtc_sysfs_show_hctosys(struct device *dev, struct device_attribute *attr,
 		return sprintf(buf, "0\n");
 }
 
-static struct device_attribute rtc_attrs[] = {
-	__ATTR(name, S_IRUGO, rtc_sysfs_show_name, NULL),
-	__ATTR(date, S_IRUGO, rtc_sysfs_show_date, NULL),
-	__ATTR(time, S_IRUGO, rtc_sysfs_show_time, NULL),
-	__ATTR(since_epoch, S_IRUGO, rtc_sysfs_show_since_epoch, NULL),
-	__ATTR(max_user_freq, S_IRUGO | S_IWUSR, rtc_sysfs_show_max_user_freq,
-			rtc_sysfs_set_max_user_freq),
-	__ATTR(hctosys, S_IRUGO, rtc_sysfs_show_hctosys, NULL),
-	{ },
-};
-
 static ssize_t
 rtc_sysfs_show_wakealarm(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -152,6 +141,7 @@ rtc_sysfs_show_wakealarm(struct device *dev, struct device_attribute *attr,
 	return retval;
 }
 
+unsigned char zte_rtc_alarm_en=0;
 static ssize_t
 rtc_sysfs_set_wakealarm(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t n)
@@ -166,9 +156,16 @@ rtc_sysfs_set_wakealarm(struct device *dev, struct device_attribute *attr,
 	/* Only request alarms that trigger in the future.  Disable them
 	 * by writing another time, e.g. 0 meaning Jan 1 1970 UTC.
 	 */
+	printk("rtc_sysfs_set_wakealarm is enter,buf=%s,n=%d,zte_rtc_alarm_en=%d\n",buf,n,zte_rtc_alarm_en);
+
+	zte_rtc_alarm_en=0;
+	
 	retval = rtc_read_time(rtc, &alm.time);
 	if (retval < 0)
+	{     
+	       printk("rtc_sysfs_set_wakealarm is error1 return=%d\n",retval);
 		return retval;
+	}
 	rtc_tm_to_time(&alm.time, &now);
 
 	buf_ptr = (char *)buf;
@@ -178,8 +175,12 @@ rtc_sysfs_set_wakealarm(struct device *dev, struct device_attribute *attr,
 	}
 	alarm = simple_strtoul(buf_ptr, NULL, 0);
 	if (adjust) {
+		alarm /= MSEC_PER_SEC;
 		alarm += now;
 	}
+
+	 printk("rtc_sysfs_set_wakealarm:alarm=%ld,now=%ld\n",alarm,now);
+	
 	if (alarm > now) {
 		/* Avoid accidentally clobbering active alarms; we can't
 		 * entirely prevent that here, without even the minimal
@@ -187,26 +188,51 @@ rtc_sysfs_set_wakealarm(struct device *dev, struct device_attribute *attr,
 		 */
 		retval = rtc_read_alarm(rtc, &alm);
 		if (retval < 0)
+		{
+		       printk("rtc_sysfs_set_wakealarm is error2 return=%d\n",retval);
 			return retval;
+		}
+#if 0		
 		if (alm.enabled)
+		{
+		        printk("rtc_sysfs_set_wakealarm is error3 return=-EBUSY\n");
 			return -EBUSY;
+		}
+#endif		
 
+              zte_rtc_alarm_en=1;
 		alm.enabled = 1;
-	} else {
+		setup_hibernate_alarm(rtc, (alarm - now));
+	} 
+	else {
 		alm.enabled = 0;
 
 		/* Provide a valid future alarm time.  Linux isn't EFI,
 		 * this time won't be ignored when disabling the alarm.
 		 */
 		alarm = now + 300;
+		setup_hibernate_alarm(rtc, 0);
 	}
 	rtc_time_to_tm(alarm, &alm.time);
 
 	retval = rtc_set_alarm(rtc, &alm);
+	printk("rtc_sysfs_set_wakealarm is ok return=%d,zte_rtc_alarm_en=%d\n",retval,zte_rtc_alarm_en);
+	
 	return (retval < 0) ? retval : n;
 }
 static DEVICE_ATTR(wakealarm, S_IRUGO | S_IWUSR,
 		rtc_sysfs_show_wakealarm, rtc_sysfs_set_wakealarm);
+
+static struct device_attribute rtc_attrs[] = {
+	__ATTR(name, S_IRUGO, rtc_sysfs_show_name, NULL),
+	__ATTR(date, S_IRUGO, rtc_sysfs_show_date, NULL),
+	__ATTR(time, S_IRUGO, rtc_sysfs_show_time, NULL),
+	__ATTR(since_epoch, S_IRUGO, rtc_sysfs_show_since_epoch, NULL),
+	__ATTR(max_user_freq, S_IRUGO | S_IWUSR, rtc_sysfs_show_max_user_freq,rtc_sysfs_set_max_user_freq),
+	__ATTR(hctosys, S_IRUGO, rtc_sysfs_show_hctosys, NULL),
+	__ATTR(wakealarm, S_IRUGO | S_IWUSR,rtc_sysfs_show_wakealarm, rtc_sysfs_set_wakealarm), //add by stone 20120323 for poweroff alarm
+	{ },
+};
 
 
 /* The reason to trigger an alarm with no process watching it (via sysfs)
@@ -217,7 +243,10 @@ static DEVICE_ATTR(wakealarm, S_IRUGO | S_IWUSR,
 static inline int rtc_does_wakealarm(struct rtc_device *rtc)
 {
 	if (!device_can_wakeup(rtc->dev.parent))
+	{  
+              dev_info(rtc->dev.parent,"RTC do not support wakeup\n");
 		return 0;
+	}
 	return rtc->ops->set_alarm != NULL;
 }
 
@@ -228,7 +257,10 @@ void rtc_sysfs_add_device(struct rtc_device *rtc)
 
 	/* not all RTCs support both alarms and wakeup */
 	if (!rtc_does_wakealarm(rtc))
+	{
+	       dev_info(rtc->dev.parent,"RTCs do not support both alarm and wakeup\n");
 		return;
+	}
 
 	err = device_create_file(&rtc->dev, &dev_attr_wakealarm);
 	if (err)

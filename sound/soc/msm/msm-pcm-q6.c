@@ -100,12 +100,32 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 static void event_handler(uint32_t opcode,
 		uint32_t token, uint32_t *payload, void *priv)
 {
+#if 0
 	struct msm_audio *prtd = priv;
 	struct snd_pcm_substream *substream = prtd->substream;
 	uint32_t *ptrmem = (uint32_t *)payload;
 	int i = 0;
 	uint32_t idx = 0;
 	uint32_t size = 0;
+#else
+	struct msm_audio *prtd = NULL;
+	struct snd_pcm_substream *substream = NULL;
+	uint32_t *ptrmem = NULL;
+	int i = 0;
+	uint32_t idx = 0;
+	uint32_t size = 0;
+
+// chenjun:fix kernel NULL pointer
+	if ((payload == NULL) || (priv == NULL)) {
+		pr_err("%s:payload or priv NULL\n", __func__);
+		return;
+	}
+//
+
+	prtd = priv;
+	substream = prtd->substream;
+	ptrmem = (uint32_t *)payload;
+#endif
 
 	pr_debug("%s\n", __func__);
 	switch (opcode) {

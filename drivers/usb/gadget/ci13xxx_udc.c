@@ -64,7 +64,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/otg.h>
-
+#include <linux/switch.h>
 #include "ci13xxx_udc.h"
 
 
@@ -2759,6 +2759,36 @@ static const struct usb_ep_ops usb_ep_ops = {
 	.fifo_flush    = ep_fifo_flush,
 };
 
+/*notify usb online and offline state*/
+static ssize_t udc_print_switch_name(struct switch_dev *sdev, char *buf)
+{
+	return sprintf(buf, "%s\n", "usb_scsi_command");
+}
+
+static ssize_t udc_print_switch_state(struct switch_dev *sdev, char *buf)
+{
+	return sprintf(buf, "%d\n", sdev->state);
+}
+
+static void udc_uevent(struct switch_dev *sdev, int state)
+{
+	//struct ci13xxx *udc = container_of(data, struct ci13xxx, event_work);
+	char *online[2] = { "USB_STATE=ONLINE", NULL };
+	char *offline[2] = { "USB_STATE=OFFLINE", NULL };
+	char **uevent_envp = NULL;
+
+	//switch_set_state(&sdev, state);
+	
+	uevent_envp = state? online : offline;
+	
+	if (uevent_envp) {
+		kobject_uevent_env(&sdev->dev->kobj, KOBJ_CHANGE, uevent_envp);
+		pr_info("%s: sent uevent %s\n", __func__, uevent_envp[0]);
+		}
+}
+/*end*/
+
+
 /******************************************************************************
  * GADGET block
  *****************************************************************************/
@@ -2776,7 +2806,8 @@ static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 	if (udc->driver)
 		gadget_ready = 1;
 	spin_unlock_irqrestore(udc->lock, flags);
-
+	
+	pr_info("usb %s, activate:%d\n",__func__, is_active);		
 	if (gadget_ready) {
 		if (is_active) {
 			pm_runtime_get_sync(&_gadget->dev);
@@ -2787,11 +2818,14 @@ static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 			hw_device_state(0);
 			_gadget_stop_activity(&udc->gadget);
 			pm_runtime_put_sync(&_gadget->dev);
-		}
+		}		 
+		udc_uevent(&udc->sdev, is_active);
 	}
 
 	return 0;
 }
+
+
 
 static int ci13xxx_vbus_draw(struct usb_gadget *_gadget, unsigned mA)
 {
@@ -3205,6 +3239,17 @@ static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 		goto put_transceiver;
 	}
 
+	/*online and offline event*/
+      udc->sdev.name = "usb_scsi_command";
+      udc->sdev.print_name = udc_print_switch_name;
+      udc->sdev.print_state = udc_print_switch_state;
+	retval = switch_dev_register(&udc->sdev);
+	if (retval) {
+		goto put_transceiver;	
+	}
+	//INIT_WORK(&udc->event_work, uevent_work);
+	/*end*/
+
 #ifdef CONFIG_USB_GADGET_DEBUG_FILES
 	retval = dbg_create_files(&udc->gadget.dev);
 #endif
@@ -3229,6 +3274,7 @@ remove_dbg:
 #endif
 unreg_device:
 	device_unregister(&udc->gadget.dev);
+	switch_dev_unregister(&udc->sdev);
 put_transceiver:
 	if (udc->transceiver)
 		otg_put_transceiver(udc->transceiver);

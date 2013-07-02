@@ -24,7 +24,20 @@ static struct gpiomux_setting spi_active = {
 	.drv = GPIOMUX_DRV_12MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
-
+#ifdef CONFIG_OV8820
+static struct gpiomux_setting cam_active = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_HIGH,
+};
+static struct gpiomux_setting cam_suspended_config = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_HIGH,
+};
+#endif
 static struct gpiomux_setting spi_suspended_config = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -49,6 +62,14 @@ static struct gpiomux_setting gsbi3_suspended_cfg = {
 	.pull = GPIOMUX_PULL_KEEPER,
 };
 
+#ifdef CONFIG_USE_BCM4330
+static struct gpiomux_setting wifireg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_16MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+#endif
+
 static struct gpiomux_setting gsbi3_active_cfg = {
 	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_8MA,
@@ -61,17 +82,75 @@ static struct gpiomux_setting gsbi5 = {
 	.pull = GPIOMUX_PULL_NONE,
 };
 
+#if 0
 static struct gpiomux_setting gsbi10 = {
 	.func = GPIOMUX_FUNC_2,
 	.drv = GPIOMUX_DRV_8MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
+#endif
 
+#ifdef CONFIG_USE_BCM4330
+static struct gpiomux_setting gsbi11_active = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting gsbi11_suspend = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_DOWN,
+
+};
+#endif
+
+static struct gpiomux_setting gsbi10_suspended_cfg = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_KEEPER,
+};
+
+static struct gpiomux_setting gsbi10_active_cfg = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+#ifdef CONFIG_FLSH_ADP1650
+static struct gpiomux_setting gsbi7_suspended_cfg = 
+{
+		.func = GPIOMUX_FUNC_1, /*i2c suspend*/
+		.drv = GPIOMUX_DRV_2MA,
+		.pull = GPIOMUX_PULL_KEEPER,
+};
+
+static struct gpiomux_setting gsbi7_active_cfg = 
+{
+	.func = GPIOMUX_FUNC_1,      /*active 1*/
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+#endif
+
+#ifndef CONFIG_MSM_DSPS
+static struct gpiomux_setting gsbi12_suspended_cfg = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_KEEPER,
+};
+
+static struct gpiomux_setting gsbi12_active_cfg = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_8MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+#else
 static struct gpiomux_setting gsbi12 = {
 	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_8MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
+#endif
 
 static struct gpiomux_setting cdc_mclk = {
 	.func = GPIOMUX_FUNC_1,
@@ -108,6 +187,7 @@ static struct gpiomux_setting slimbus = {
 	.pull = GPIOMUX_PULL_KEEPER,
 };
 
+#ifndef CONFIG_USE_BCM4330
 static struct gpiomux_setting wcnss_5wire_suspend_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv  = GPIOMUX_DRV_2MA,
@@ -119,6 +199,8 @@ static struct gpiomux_setting wcnss_5wire_active_cfg = {
 	.drv  = GPIOMUX_DRV_6MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
+#endif
+
 
 static struct gpiomux_setting cyts_resout_sus_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -132,6 +214,7 @@ static struct gpiomux_setting cyts_resout_act_cfg = {
 	.pull = GPIOMUX_PULL_UP,
 };
 
+#if 0
 static struct gpiomux_setting cyts_sleep_sus_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_6MA,
@@ -143,6 +226,7 @@ static struct gpiomux_setting cyts_sleep_act_cfg = {
 	.drv = GPIOMUX_DRV_6MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
+#endif
 
 static struct gpiomux_setting cyts_int_act_cfg = {
 	.func = GPIOMUX_FUNC_GPIO,
@@ -277,13 +361,13 @@ static struct msm_gpiomux_config msm8960_ethernet_configs[] = {
 #endif
 
 static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
-	{
-		.gpio      = 6,		/* GSBI1 QUP SPI_DATA_MOSI */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
-			[GPIOMUX_ACTIVE] = &spi_active,
-		},
-	},
+	//{
+	//	.gpio      = 6,		/* GSBI1 QUP SPI_DATA_MOSI */
+	//	.settings = {
+	//		[GPIOMUX_SUSPENDED] = &spi_suspended_config,
+	//		[GPIOMUX_ACTIVE] = &spi_active,
+	//	},
+	//},
 	{
 		.gpio      = 7,		/* GSBI1 QUP SPI_DATA_MISO */
 		.settings = {
@@ -298,6 +382,15 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
+	#ifdef CONFIG_OV8820
+	{
+		.gpio      = 9,		/* camera dvdd */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &cam_suspended_config,
+			[GPIOMUX_ACTIVE] = &cam_active,
+		},
+	},
+	#else
 	{
 		.gpio      = 9,		/* GSBI1 QUP SPI_CLK */
 		.settings = {
@@ -305,6 +398,7 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
+	#endif
 	{
 		.gpio      = 14,		/* GSBI1 SPI_CS_1 */
 		.settings = {
@@ -338,10 +432,31 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 		},
 	},
+#ifdef CONFIG_MHL_Sii8334
+	{
+		.gpio      = 24,	/* GSBI5 I2C */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi5,
+			[GPIOMUX_ACTIVE] = &gsbi5,
+		},
+	},
+	{
+		.gpio      = 25,	/* GSBI5 I2C */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi5,
+			[GPIOMUX_ACTIVE] = &gsbi5,
+		},
+	},
+#else
 	{
 		.gpio      = 24,	/* GSBI5 UART2 */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi5,
+			//[GPIOMUX_SUSPENDED] = &gsbi5,
+		#ifndef CONFIG_USE_BCM4330
+	                [GPIOMUX_SUSPENDED] = &gsbi5,	
+		#else
+			[GPIOMUX_SUSPENDED] = &wifireg,
+		#endif
 		},
 	},
 	{
@@ -350,6 +465,55 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 		},
 	},
+#endif
+	/*4330 Begin */
+	#ifdef CONFIG_USE_BCM4330
+	{
+		.gpio      = 38,	/* GSBI11 UART2 */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi11_active,
+			[GPIOMUX_ACTIVE] = &gsbi11_suspend,
+		},
+	},
+	{
+		.gpio      = 39,	/* GSBI11 UART2 */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi11_active,
+			[GPIOMUX_ACTIVE] = &gsbi11_suspend,
+		},
+	},
+	{
+		.gpio      = 40,	/* GSBI11 UART2 */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi11_active,
+			[GPIOMUX_ACTIVE] = &gsbi11_suspend,
+		},
+	},
+	{
+		.gpio      = 41,	/* GSBI11 UART2 */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi11_active,
+			[GPIOMUX_ACTIVE] = &gsbi11_suspend,
+		},
+	},
+	#endif
+	/*4330 End */
+#ifndef CONFIG_MSM_DSPS
+	{
+		.gpio      = 44,	/* GSBI12 I2C QUP SDA */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi12_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi12_active_cfg,
+		},
+	},
+	{
+		.gpio      = 45,	/* GSBI12 I2C QUP SCL */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi12_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi12_active_cfg,
+		},
+	},
+#else
 	{
 		.gpio      = 44,	/* GSBI12 I2C QUP SDA */
 		.settings = {
@@ -362,18 +526,37 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gsbi12,
 		},
 	},
+#endif
 	{
 		.gpio      = 73,	/* GSBI10 I2C QUP SDA */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi10,
+			[GPIOMUX_SUSPENDED] = &gsbi10_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi10_active_cfg,
 		},
 	},
 	{
 		.gpio      = 74,	/* GSBI10 I2C QUP SCL */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi10,
+			[GPIOMUX_SUSPENDED] = &gsbi10_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi10_active_cfg,
 		},
 	},
+#ifdef CONFIG_FLSH_ADP1650
+     {
+		.gpio      = 32,	/* GSBI7 I2C QUP SDA */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi7_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi7_active_cfg,
+		},
+	},
+	{
+		.gpio      = 33,/* GSBI7 I2C QUP SCL */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi7_suspended_cfg,
+			[GPIOMUX_ACTIVE] = &gsbi7_active_cfg,
+		},
+	},
+#endif
 };
 
 static struct msm_gpiomux_config msm8960_slimbus_config[] __initdata = {
@@ -431,6 +614,8 @@ static struct msm_gpiomux_config msm8960_audio_auxpcm_configs[] __initdata = {
 	},
 };
 
+
+#ifndef CONFIG_USE_BCM4330
 static struct msm_gpiomux_config wcnss_5wire_interface[] = {
 	{
 		.gpio = 84,
@@ -468,6 +653,68 @@ static struct msm_gpiomux_config wcnss_5wire_interface[] = {
 		},
 	},
 };
+#endif
+
+#ifdef  CONFIG_USE_BCM4330
+static struct gpiomux_setting sdc4_suspend_cfg = {
+	.func = GPIOMUX_FUNC_2,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+ 
+ 
+static struct gpiomux_setting sdc4_active_cfg = {
+	.func = GPIOMUX_FUNC_2,
+	.drv  = GPIOMUX_DRV_16MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+ 
+static struct msm_gpiomux_config sdc4_interface[] = {
+	{
+		.gpio = 83,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+	{
+		.gpio = 84,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+	{
+		.gpio = 85,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+	{
+		.gpio = 86,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+	{
+		.gpio = 87,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+	{
+		.gpio = 88,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sdc4_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sdc4_suspend_cfg,
+		},
+	},
+};
+#endif
+
 
 static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 	{	/* TS INTERRUPT */
@@ -477,6 +724,7 @@ static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg,
 		},
 	},
+#if 0
 	{	/* TS SLEEP */
 		.gpio = 50,
 		.settings = {
@@ -484,6 +732,7 @@ static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &cyts_sleep_sus_cfg,
 		},
 	},
+#endif
 	{	/* TS RESOUT */
 		.gpio = 52,
 		.settings = {
@@ -708,6 +957,152 @@ static struct msm_gpiomux_config msm8960_hdmi_configs[] __initdata = {
 	},
 };
 #endif
+#if 1
+static struct gpiomux_setting in_pu_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.dir = GPIOMUX_IN,
+	.pull = GPIOMUX_PULL_UP,
+};
+static struct gpiomux_setting in_pd_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.dir = GPIOMUX_IN,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+static struct gpiomux_setting out_high_np_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.dir = GPIOMUX_OUT_HIGH,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct msm_gpiomux_config msm8960_common_configs[] __initdata = {
+	{
+		.gpio = 1,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 4,//none
+		.settings = {
+			[GPIOMUX_ACTIVE]	= &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 7,//MHL_INT_N
+		.settings = {
+			[GPIOMUX_ACTIVE]	= &in_pu_cfg,
+		},
+	},
+	{
+		.gpio = 8,//MHL_RESET
+		.settings = {
+			[GPIOMUX_ACTIVE]	=  &out_high_np_cfg,
+		},
+	},	
+	{
+		.gpio = 14,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 18,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 19,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+#ifndef CONFIG_FLSH_ADP1650
+	{
+		.gpio = 32,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 33,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+#endif
+	{
+		.gpio = 47,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+#if 1
+	{
+		.gpio = 49,//NONE
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pu_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pu_cfg,
+		},
+	},
+//
+#endif
+#if 1
+	{	/* Headset Detection */
+		.gpio = 50,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &in_pu_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pu_cfg,
+		},
+	},
+#endif
+
+	{//camera_standby
+		.gpio = 53,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &out_high_np_cfg,
+		},
+	},
+	{//camera_standby
+		.gpio = 54,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &out_high_np_cfg,
+		},
+	},
+	{
+		.gpio = 62,//wcd codec irq, input low when sleep
+		.settings = {
+		    [GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 140,//none
+		.settings = {
+		    [GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	},
+	{
+		.gpio = 141,//none
+		.settings = {
+		    [GPIOMUX_ACTIVE]    = &in_pd_cfg,
+			[GPIOMUX_SUSPENDED] = &in_pd_cfg,
+		},
+	}
+};
+#endif
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 static struct gpiomux_setting sdcc2_clk_actv_cfg = {
@@ -814,18 +1209,37 @@ int __init msm8960_init_gpiomux(void)
 	msm_gpiomux_install(msm8960_audio_auxpcm_configs,
 			ARRAY_SIZE(msm8960_audio_auxpcm_configs));
 
+#ifdef CONFIG_USE_BCM4330
+	msm_gpiomux_install(sdc4_interface,
+		ARRAY_SIZE(sdc4_interface));
+#else
 	msm_gpiomux_install(wcnss_5wire_interface,
 			ARRAY_SIZE(wcnss_5wire_interface));
-
-#ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
-	msm_gpiomux_install(msm8960_sdcc4_configs,
-		ARRAY_SIZE(msm8960_sdcc4_configs));
 #endif
+
+#if 0
 
 	if (machine_is_msm8960_mtp() || machine_is_msm8960_fluid() ||
 		machine_is_msm8960_liquid() || machine_is_msm8960_cdp())
 		msm_gpiomux_install(hap_lvl_shft_config,
 			ARRAY_SIZE(hap_lvl_shft_config));
+#else
+	if (machine_is_msm8960_mtp() || machine_is_msm8960_fluid()
+            || machine_is_msm8960_liquid() || machine_is_msm8960_cdp()
+	    || machine_is_adams()
+            || machine_is_baker()
+            || machine_is_crater()
+            || machine_is_dana()
+            || machine_is_elden()
+            || machine_is_frosty()
+            || machine_is_gordon()
+            || machine_is_hayes()
+            || machine_is_iliamna()
+            || machine_is_jarvis()
+            || machine_is_kiska())
+		msm_gpiomux_install(hap_lvl_shft_config,
+			ARRAY_SIZE(hap_lvl_shft_config));
+#endif
 
 	if (PLATFORM_IS_CHARM25())
 		msm_gpiomux_install(mdm_configs,
@@ -845,6 +1259,10 @@ int __init msm8960_init_gpiomux(void)
 
 	msm_gpiomux_install(msm8960_mdp_vsync_configs,
 			ARRAY_SIZE(msm8960_mdp_vsync_configs));
+#if 1
+	msm_gpiomux_install(msm8960_common_configs,
+			ARRAY_SIZE(msm8960_common_configs));
+#endif
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 	msm_gpiomux_install(msm8960_sdcc2_configs,

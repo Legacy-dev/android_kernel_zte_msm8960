@@ -39,6 +39,10 @@ u32 dsi_irq;
 
 static boolean tlmm_settings = FALSE;
 
+
+static int first_time_dsi_on = 1;
+
+
 static int mipi_dsi_probe(struct platform_device *pdev);
 static int mipi_dsi_remove(struct platform_device *pdev);
 
@@ -68,7 +72,13 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 	struct msm_panel_info *pinfo;
 
+	printk("\nLCD %s: \n", __func__);
+	
 	mfd = platform_get_drvdata(pdev);
+	if (!mfd)
+	{
+		printk("\nLCD %s no such device: \n", __func__);
+	}
 	pinfo = &mfd->panel_info;
 
 	if (mdp_rev >= MDP_REV_41)
@@ -158,8 +168,14 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	u32 ystride, bpp, data;
 	u32 dummy_xres, dummy_yres;
 	int target_type = 0;
-
+	
+       printk("\nLCD %s: \n", __func__);
+	   
 	mfd = platform_get_drvdata(pdev);
+	if (!mfd)
+	{
+		printk("\nLCD %s no such device: \n", __func__);
+	}
 	fbi = mfd->fbi;
 	var = &fbi->var;
 	pinfo = &mfd->panel_info;
@@ -192,7 +208,14 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	if (mdp_rev == MDP_REV_42 && mipi_dsi_pdata)
 		target_type = mipi_dsi_pdata->target_type;
 
-	mipi_dsi_phy_init(0, &(mfd->panel_info), target_type);
+	if(first_time_dsi_on) 	
+	{		
+		first_time_dsi_on = 0;	
+	}	
+	else	
+	{		
+		mipi_dsi_phy_init(0, &(mfd->panel_info), target_type);
+	}
 
 	local_bh_disable();
 	mipi_dsi_clk_enable();

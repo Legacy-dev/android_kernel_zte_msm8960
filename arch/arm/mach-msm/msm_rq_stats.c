@@ -43,6 +43,35 @@ static void def_work_fn(struct work_struct *work)
 	sysfs_notify(rq_info.kobj, NULL, "def_timer_ms");
 }
 
+#ifdef CONFIG_SCHEDSTATS
+//tcd
+extern void get_max_waiting_time_ms(u64 *m);
+extern u32 fc;
+
+extern int msm_pm_debug_mask;
+
+static ssize_t show_fps(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	u32 fb_fps= fc;//update_fps();
+	return snprintf(buf, PAGE_SIZE, "%u\n", fb_fps);
+}
+
+static ssize_t show_run_waittime(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	u64 m=0;
+
+	get_max_waiting_time_ms(&m);
+	if (m!= 0){
+	do_div(m, 1000 * 1000);
+	    if ((m==0) && (msm_pm_debug_mask & 0x200))
+		printk("div to zero\n");
+	}
+	return snprintf(buf, PAGE_SIZE, "%u\n", (u32)m);
+}
+#endif
+
 static ssize_t show_run_queue_avg(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
@@ -153,7 +182,15 @@ static int init_rq_attribs(void)
 	attribs[0] = MSM_RQ_STATS_RW_ATTRIB(def_timer_ms);
 	attribs[1] = MSM_RQ_STATS_RO_ATTRIB(run_queue_avg);
 	attribs[2] = MSM_RQ_STATS_RW_ATTRIB(run_queue_poll_ms);
+#ifdef CONFIG_SCHEDSTATS
+	//tcd
+	attribs[3] = MSM_RQ_STATS_RO_ATTRIB(run_waittime);
+	attribs[4] = MSM_RQ_STATS_RO_ATTRIB(fps);
+	attribs[5] = NULL;
+#else
 	attribs[3] = NULL;
+
+#endif
 
 	for (i = 0; i < attr_count - 1 ; i++) {
 		if (!attribs[i])

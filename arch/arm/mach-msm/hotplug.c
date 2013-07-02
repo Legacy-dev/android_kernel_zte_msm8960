@@ -42,6 +42,8 @@ static inline void cpu_leave_lowpower(void)
 {
 }
 
+static int spurious_wakeup1 = 0;
+static int spurious_wakeup2 = 0;
 static inline void platform_do_lowpower(unsigned int cpu)
 {
 	/* Just enter wfi for now. TODO: Properly shut off the cpu. */
@@ -69,6 +71,13 @@ static inline void platform_do_lowpower(unsigned int cpu)
 		dmac_inv_range((void *)&pen_release,
 			       (void *)(&pen_release + sizeof(pen_release)));
 		pr_debug("CPU%u: spurious wakeup call\n", cpu);
+		
+		//set a mark for debug
+		spurious_wakeup1++;
+	}
+	if (spurious_wakeup1 > 0) {
+		spurious_wakeup1 = 0;
+		spurious_wakeup2++;
 	}
 }
 

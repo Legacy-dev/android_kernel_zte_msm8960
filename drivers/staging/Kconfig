@@ -162,4 +162,9 @@ source "drivers/staging/mei/Kconfig"
 
 source "drivers/staging/nvec/Kconfig"
 
+#
+# Created by ZTE_BOOT_JIA_20120803 jia.jia
+#
+source "drivers/staging/zte_ftm/Kconfig"
+
 endif # STAGING

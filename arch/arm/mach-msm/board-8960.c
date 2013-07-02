@@ -61,6 +61,15 @@
 #include <mach/usbdiag.h>
 #include <mach/socinfo.h>
 #include <mach/rpm.h>
+#ifndef CONFIG_MSM_DSPS
+//Yang
+#if defined(CONFIG_MPU_SENSORS_MPU3050) || defined(CONFIG_MPU_SENSORS_MPU3050_MODULE)
+
+#include <linux/mpu.h>
+#include <linux/mpu3050.h>
+
+#endif
+#endif
 #include <mach/gpio.h>
 #include <mach/gpiomux.h>
 #include <mach/msm_bus_board.h>
@@ -102,6 +111,12 @@
 #include "pm-boot.h"
 #include "msm_watchdog.h"
 
+//weilanying add touch begin
+#include <linux/input/msm_cap_ts.h>	
+#include <linux/input/synaptics_i2c_rmi.h>
+#include <linux/input/atmel_qt602240.h>
+//weilanying add touch end
+
 static struct platform_device msm_fm_platform_init = {
 	.name = "iris_fm",
 	.id   = -1,
@@ -111,8 +126,221 @@ static struct platform_device msm_fm_platform_init = {
 #define KS8851_IRQ_GPIO		90
 #define HAP_SHIFT_LVL_OE_GPIO	47
 
-#if defined(CONFIG_GPIO_SX150X) || defined(CONFIG_GPIO_SX150X_MODULE)
 
+/*4330 Begin */
+#ifdef CONFIG_USE_BCM4330 //add by zkd for bt
+
+
+enum {
+	//BT_TX = 38,
+	//BT_RX = 39,
+	//BT_CTS = 40,
+	//BT_RFR = 41,
+	BT_PCM_DOUT = 63,
+	BT_PCM_DIN = 64,
+	BT_PCM_SYNC =65,
+	BT_PCM_CLK = 66,
+	BT_RST = 25,
+	//BT_REG_ON = PM8921_GPIO_PM_TO_SYS (21),
+	MSM2BT_WAKE = 51,
+	BT2MSM_WAKE = 52,
+};
+static struct platform_device msm_bt_power_device = {
+	.name = "bt_power",
+};
+
+static struct resource bluesleep_resources[] = {
+	{
+		.name	= "gpio_host_wake",
+		.start	= BT2MSM_WAKE,
+		.end	= BT2MSM_WAKE,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "gpio_ext_wake",
+		.start	= MSM2BT_WAKE,
+		.end	= MSM2BT_WAKE,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "host_wake",
+		.start	= MSM_GPIO_TO_INT(BT2MSM_WAKE),
+		.end	= MSM_GPIO_TO_INT(BT2MSM_WAKE),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device msm_bluesleep_device = {
+	.name = "bluesleep",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(bluesleep_resources),
+	.resource	= bluesleep_resources,
+};
+
+ 
+static unsigned bt_config_power_on[] = {
+	GPIO_CFG(MSM2BT_WAKE, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* WAKE */ //gsbi11 guoyuhua
+	//GPIO_CFG(BT_RFR, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* RFR */
+	//GPIO_CFG(BT_CTS, 1, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* CTS */
+	//GPIO_CFG(BT_RX, 1, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* Rx */
+	//GPIO_CFG(BT_TX, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* Tx */
+       GPIO_CFG(BT_RST, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),          /*BT_RST*/
+    //   GPIO_CFG(BT_REG_ON, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),  /* BT_REG_ON */
+	GPIO_CFG(BT2MSM_WAKE, 0, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* HOST_WAKE */
+};
+
+
+static unsigned bt_config_power_off[] = {
+	GPIO_CFG(MSM2BT_WAKE, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),	/* WAKE */ //gsbi11 guoyuhua
+    	//GPIO_CFG(BT_RFR, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA),  /* RFR */
+    	//GPIO_CFG(BT_CTS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA),  /* CTS */
+    	//GPIO_CFG(BT_RX, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA),  /* Rx */
+    	//GPIO_CFG(BT_TX, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA),  /* Tx */
+    	GPIO_CFG(BT_RST, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),	/* reset */
+    //	GPIO_CFG(BT_REG_ON, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* BT_REG_ON */
+	GPIO_CFG(BT2MSM_WAKE, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),	/* HOST_WAKE */
+};
+
+
+
+
+ 
+static int bluetooth_power(int on)
+{
+	int pin, rc;
+
+	printk(KERN_DEBUG "%s\n", __func__);
+	//tpa2028d1_set_speaker_amp(on);
+	if (on) {
+			//msm_gpiomux_install(bt_uart_cfg,
+					//ARRAY_SIZE(bt_uart_cfg));
+		for (pin = 0; pin < ARRAY_SIZE(bt_config_power_on); pin++) {
+			rc = gpio_tlmm_config(bt_config_power_on[pin],
+					      GPIO_CFG_ENABLE);
+			if (rc) {
+				printk(KERN_ERR
+				       "%s: gpio_tlmm_config(%#x)=%d\n",
+				       __func__, bt_config_power_on[pin], rc);
+				return -EIO;
+			}
+		}
+        printk(KERN_ERR "bt power on");
+    //    dump_stack();
+     //   rc = gpio_direction_output(BT_REG_ON, 1);  /*bt on :BT_REG_ON -->1*/
+     /*   if (rc) 
+        {
+            printk(KERN_ERR "%s: generation wifi power (%d)\n",
+                   __func__, rc);
+            return -EIO;
+        }
+		mdelay(50);*/
+
+        rc = gpio_direction_output(BT_RST, 1);  /*bton:BT_RST -->1*/
+		if (rc) {
+			printk(KERN_ERR "%s: generation BTS4020 main clock is failed (%d)\n",
+			       __func__, rc);
+			return -EIO;
+		}
+		gpio_direction_output(MSM2BT_WAKE, 1);
+		
+		mdelay(50);
+	} else {
+
+
+        rc = gpio_direction_output(BT_RST, 0);  /*bt off:BT_RST -->0*/
+        if (rc) 
+        {
+            printk(KERN_ERR "%s:  bt power off fail (%d)\n",
+                   __func__, rc);
+            return -EIO;
+        }
+
+ //       rc = gpio_direction_output(BT_REG_ON, 0);  /*bt_reg_on off on :BT_REG_ON -->0*/
+   /*     if (rc) 
+        {
+            printk(KERN_ERR "%s:  bt power off fail (%d)\n",
+                   __func__, rc);
+            return -EIO;
+        }*/
+
+		
+	for (pin = 0; pin < ARRAY_SIZE(bt_config_power_off); pin++) {
+			rc = gpio_tlmm_config(bt_config_power_off[pin],
+					      GPIO_CFG_ENABLE);
+			if (rc) {
+				printk(KERN_ERR
+				       "%s: gpio_tlmm_config(%#x)=%d\n",
+				       __func__, bt_config_power_off[pin], rc);
+				return -EIO;
+			}
+		}
+	
+	}
+	return 0;
+}
+
+
+
+ 
+static void __init bt_power_init(void)
+{
+    int pin = 0, rc = 0;
+	msm_bt_power_device.dev.platform_data = &bluetooth_power;
+    
+	if (gpio_request(BT_RST, "BT_POWER"))		
+  		  printk("Failed to request gpio 88 for BT_POWER\n");	
+    /*
+	if (gpio_request(BT_REG_ON, "BT_REG_ON"))		
+  		  printk("Failed to request gpio 109 for BT_REG_ON\n");	
+*/
+	for (pin = 0; pin < ARRAY_SIZE(bt_config_power_on); pin++) {
+		rc = gpio_tlmm_config(bt_config_power_on[pin],
+				      GPIO_CFG_ENABLE);
+		if (rc) {
+			printk(KERN_ERR
+			       "%s: gpio_tlmm_config(%#x)=%d\n",
+			       __func__, bt_config_power_on[pin], rc);
+		}
+	}
+
+    rc = gpio_direction_output(BT_RST, 0);  /*bt off:BT_RST -->0*/
+    if (rc) 
+    {
+        printk(KERN_ERR "%s:  bt power off fail (%d)\n",
+               __func__, rc);
+    }
+
+ //   rc = gpio_direction_output(BT_REG_ON, 0);  /*bt_reg_on off on :BT_REG_ON -->0*/
+ /*   if (rc) 
+    {
+        printk(KERN_ERR "%s:  bt power off fail (%d)\n",
+               __func__, rc);
+    }
+*/
+
+	for (pin = 0; pin < ARRAY_SIZE(bt_config_power_off); pin++) {
+		rc = gpio_tlmm_config(bt_config_power_off[pin],
+				      GPIO_CFG_ENABLE);
+		if (rc) {
+			printk(KERN_ERR
+			       "%s: gpio_tlmm_config(%#x)=%d\n",
+			       __func__, bt_config_power_off[pin], rc);
+		}
+	}
+//#endif
+//	printk(KERN_ERR"init bluetooth_power ");
+//	tpa_power_test();
+//	bluetooth_power(1);
+}
+
+/*4330 End */
+#endif
+
+
+
+
+
+#if defined(CONFIG_GPIO_SX150X) || defined(CONFIG_GPIO_SX150X_MODULE)
 struct sx150x_platform_data msm8960_sx150x_data[] = {
 	[SX150X_CAM] = {
 		.gpio_base         = GPIO_CAM_EXPANDER_BASE,
@@ -1035,6 +1263,7 @@ static struct slim_boardinfo msm_slim_devices[] = {
 	/* add more slimbus slaves as needed */
 };
 
+#ifndef CONFIG_USE_BCM4330
 #define MSM_WCNSS_PHYS	0x03000000
 #define MSM_WCNSS_SIZE	0x280000
 
@@ -1076,6 +1305,9 @@ static struct platform_device msm_device_wcnss_wlan = {
 	.resource	= resources_wcnss_wlan,
 	.dev		= {.platform_data = &qcom_wcnss_pdata},
 };
+#endif
+
+
 
 #if defined(CONFIG_CRYPTO_DEV_QCRYPTO) || \
 		defined(CONFIG_CRYPTO_DEV_QCRYPTO_MODULE) || \
@@ -1732,7 +1964,7 @@ static struct i2c_board_info msm_isa1200_board_info[] __initdata = {
 		I2C_BOARD_INFO("isa1200_1", 0x90>>1),
 	},
 };
-
+#if defined (CONFIG_TOUCHSCREEN_CYTTSP_I2C)
 #define CYTTSP_TS_GPIO_IRQ		11
 #define CYTTSP_TS_SLEEP_GPIO		50
 #define CYTTSP_TS_RESOUT_N_GPIO		52
@@ -1854,7 +2086,8 @@ static struct i2c_board_info cyttsp_info[] __initdata = {
 #endif /* CY_USE_TIMER */
 	},
 };
-
+#endif 
+#if defined (CONFIG_TOUCHSCREEN_ATMEL_MXT)
 /* configuration data for mxt1386 */
 static const u8 mxt1386_config_data[] = {
 	/* T6 Object */
@@ -2087,6 +2320,24 @@ static struct i2c_board_info mxt_device_info[] __initdata = {
 		.irq = MSM_GPIO_TO_INT(MXT_TS_GPIO_IRQ),
 	},
 };
+#endif
+
+#if 0 
+static void gsbi_qup_i2c_touch_gpio_config(int adap_id, int config_type)
+{
+  int rc = 0;
+	rc = gpio_request(16, "scl_data");/* GSBI3 I2C QUP SDA */
+	if (rc) {
+		pr_err("%s: unable to request GSBI3 I2C QUP SDA gpio [%d]\n",
+				__func__, 16);
+	}
+	rc = gpio_request(17, "scl_clk");/* GSBI3 I2C QUP SCL */
+	if (rc) {
+		pr_err("%s: unable to request GSBI3 I2C QUP SCL gpio [%d]\n",
+				__func__, 17);
+	}	
+}
+#endif
 
 static struct i2c_board_info sii_device_info[] __initdata = {
 	{
@@ -2102,7 +2353,7 @@ static struct msm_i2c_platform_data msm8960_i2c_qup_gsbi4_pdata = {
 };
 
 static struct msm_i2c_platform_data msm8960_i2c_qup_gsbi3_pdata = {
-	.clk_freq = 100000,
+	.clk_freq = 300000,
 	.src_clk_rate = 24000000,
 };
 
@@ -2255,6 +2506,12 @@ static struct platform_device *common_devices[] __initdata = {
 	&msm8960_device_dmov,
 	&msm_device_smd,
 	&msm8960_device_uart_gsbi5,
+	
+#ifdef CONFIG_USE_BCM4330
+	&msm_device_uart_dm11,
+	&msm_bt_power_device, //adb for bt
+	&msm_bluesleep_device,//adb for bt
+#endif
 	&msm_device_uart_dm6,
 	&msm_device_saw_core0,
 	&msm_device_saw_core1,
@@ -2269,7 +2526,9 @@ static struct platform_device *common_devices[] __initdata = {
 	&msm8960_device_qup_i2c_gsbi12,
 #endif
 	&msm_slim_ctrl,
+#ifndef CONFIG_USE_BCM4330
 	&msm_device_wcnss_wlan,
+#endif 
 #if defined(CONFIG_CRYPTO_DEV_QCRYPTO) || \
 		defined(CONFIG_CRYPTO_DEV_QCRYPTO_MODULE)
 	&qcrypto_device,
@@ -2677,12 +2936,287 @@ static struct i2c_board_info isl_charger_i2c_info[] __initdata = {
 };
 #endif /* CONFIG_ISL9519_CHARGER */
 
+#ifndef CONFIG_MSM_DSPS
+//Yang
+
+#if defined(CONFIG_MPU_SENSORS_MPU3050) || defined(CONFIG_MPU_SENSORS_MPU3050_MODULE)
+
+#define SENSOR_MPU_NAME "mpu3050"
+
+static struct mpu3050_platform_data mpu_data = {
+	.int_config  = 0x10,
+	.orientation = {  -1,  0,  0, 
+			   0,  1,  0, 
+			   0,  0, -1 },
+	/* accel */
+	.accel = {
+#ifdef CONFIG_MPU_SENSORS_MPU3050_MODULE
+		 .get_slave_descr = NULL,
+#else
+		 .get_slave_descr = get_accel_slave_descr,
+#endif
+		 .adapt_num   = 12,
+		 .bus         = EXT_SLAVE_BUS_SECONDARY,
+		 .address     = 0x1C,
+		 .orientation = {  -1,  0,  0, 
+				    0,  1,  0, 
+				    0,  0, -1 },
+	 },
+	/* compass */
+	.compass = {
+#ifdef CONFIG_MPU_SENSORS_MPU3050_MODULE
+		 .get_slave_descr = NULL,
+#else
+		 .get_slave_descr = get_compass_slave_descr,
+#endif
+		 .adapt_num   = 12,
+		 .bus         = EXT_SLAVE_BUS_PRIMARY,
+		 .address     = 0x0C,
+		 .orientation = { -1, 0, 0, 
+				  0, 1, 0, 
+				  0, 0, -1 },
+	 },
+	/* pressure */
+	.pressure = {
+#ifdef CONFIG_MPU_SENSORS_MPU3050_MODULE
+		 .get_slave_descr = NULL,
+#else
+		 .get_slave_descr = get_pressure_slave_descr,
+#endif
+		 .adapt_num   = 2,
+		 .bus         = EXT_SLAVE_BUS_PRIMARY,
+		 .address     = 0x77,
+		 .orientation = { 1, 0, 0, 
+				  0, 1, 0, 
+				  0, 0, 1 },
+	 },
+};
+#endif
+
+#define SENSOR_TAOS_I2C_SLAVE_ADDR	0x39
+
+static struct i2c_board_info msm_i2c_gsbi12_sensors_info[] = {
+	{
+		I2C_BOARD_INFO("taos", SENSOR_TAOS_I2C_SLAVE_ADDR),
+	},
+//Yang
+#if defined(CONFIG_MPU_SENSORS_MPU3050) || defined(CONFIG_MPU_SENSORS_MPU3050_MODULE)
+	{
+		I2C_BOARD_INFO("mpu3050", 0x68),
+		//.irq = MSM_GPIO_TO_INT(17),
+		.platform_data = &mpu_data,
+	},
+#endif
+};
+#endif
+
 static struct i2c_board_info liquid_io_expander_i2c_info[] __initdata = {
 	{
 		I2C_BOARD_INFO("sx1508q", 0x20),
 		.platform_data = &msm8960_sx150x_data[SX150X_LIQUID]
 	},
 };
+#if defined(CONFIG_TOUCHSCREEN_VIRTUAL_KEYS)
+
+#define CAP_TS_VKEY_SYNAPTICS "virtualkeys.synaptics-rmi4-ts"
+#define CAP_TS_VKEY_ATMEL "virtualkeys.atmel-touchscreen"
+//#define CAP_TS_VKEY_FTS "virtualkeys.Fts-touchscreen"
+
+static ssize_t cap_ts_vkeys_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	printk("%s, %s\n",__func__,attr->attr.name);
+	return sprintf(
+		buf,__stringify(EV_KEY) ":" __stringify(KEY_MENU) ":60:850:90:60"
+		":" __stringify(EV_KEY) ":" __stringify(KEY_HOME) ":180:850:90:60"
+		":" __stringify(EV_KEY) ":" __stringify(KEY_BACK) ":300:850:90:60"
+		":" __stringify(EV_KEY) ":" __stringify(KEY_SEARCH) ":420:850:90:60"
+
+
+		"\n");
+
+}
+
+static struct device_attribute cap_ts_device_attr[] = {
+#if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI)
+{
+	.attr = {
+		.name = CAP_TS_VKEY_SYNAPTICS,
+		.mode = S_IRUGO,
+	},
+	.show	= &cap_ts_vkeys_show,
+	.store	= NULL,
+},
+#endif
+#if defined(CONFIG_TOUCHSCREEN_MXT224)
+{
+	.attr = {
+		.name = CAP_TS_VKEY_ATMEL,
+		.mode = S_IRUGO,
+	},
+	.show	= &cap_ts_vkeys_show,
+	.store	= NULL,
+},
+#endif
+};
+
+static int cap_ts_vkeys_init(void)
+{
+	int rc,i;
+	struct kobject * cap_ts_properties_kobj=NULL;
+	static bool vkeyinited = false;
+
+	if ( vkeyinited == true )
+		return 0;
+
+	cap_ts_properties_kobj = kobject_create_and_add("board_properties", NULL);
+ if (cap_ts_properties_kobj == NULL) {
+		printk("%s: subsystem_register failed\n", __func__);
+		rc = -ENOMEM;
+		return rc;
+	}
+
+	i=0;
+	for ( i=0; i < ARRAY_SIZE(cap_ts_device_attr); i++ ){
+		rc = sysfs_create_file(cap_ts_properties_kobj, &cap_ts_device_attr[i].attr);
+		if (rc) {
+			printk("%s: sysfs_create_file failed\n", __func__);
+			return rc;
+		}
+	}
+
+	vkeyinited = true;
+
+	return 0;
+}
+
+#endif //end-CONFIG_TOUCHSCREEN_VIRTUAL_KEYS
+
+
+#if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI)	\
+	||	defined(CONFIG_TOUCHSCREEN_MXT224)
+
+#define CAP_TS_GPIO_IRQ 11
+
+static int cap_ts_power(int on)
+{
+	int rc = -EINVAL;
+	struct regulator *pm8921_l9, *pm8921_lvs6;
+	printk("wly: %s\n", __FUNCTION__);
+	// Vdd VREG_L12 3v
+	pm8921_l9 = regulator_get(NULL, "8921_l9");
+	if (IS_ERR(pm8921_l9)) {
+		pr_err("%s: regulator get of 8901_l1 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_l9));
+		rc = PTR_ERR(pm8921_l9);
+		return rc;
+	}
+	rc = regulator_set_voltage(pm8921_l9, 3000000, 3000000);
+	if (rc) {
+		pr_err("%s: regulator_set_voltage of pm8058_l12 failed(%d)\n",
+			__func__, rc);
+		goto reg_l9_put;
+	}
+	
+	// Vbus VREG_L23 1.8v
+	pm8921_lvs6 = regulator_get(NULL, "8921_lvs6");
+	if (IS_ERR(pm8921_lvs6)) {
+		pr_err("%s: regulator get of 8058_l10 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_lvs6));
+		rc = PTR_ERR(pm8921_lvs6);
+		goto reg_l9_put;
+	}
+	/*rc = regulator_set_voltage(pm8921_lvs6, 1800000, 1800000);
+	if (rc) {
+		pr_err("%s: regulator_set_voltage of pm8058_l23 failed(%d)\n",
+			__func__, rc);
+		goto reg_lvs6_put;
+	}*/
+
+	if (on){
+
+		printk("%s,power on!\n", __func__);
+
+		//VDD 3v
+		rc = regulator_enable(pm8921_l9);
+		if (rc) {
+			pr_err("%s: regulator_enable of pm8901_l1 failed(%d)\n",
+				__func__, rc);
+			goto reg_lvs6_put;
+		}
+
+		//usleep(20*1000);
+
+		//Vbus 1.8v
+		rc = regulator_enable(pm8921_lvs6);
+		if (rc) {
+			pr_err("%s: regulator_enable of 8058_l10 failed(%d)\n",
+				__func__, rc);
+			goto reg_lvs6_put;
+		}
+
+		// wait for vregs to stabilize
+		//usleep_range(10000, 10000);
+
+	}
+	else	// off
+	{
+		rc = regulator_disable(pm8921_l9);
+		if (rc) {
+			pr_err("%s: regulator_enable of pm8921_l9 failed(%d)\n",
+					__func__, rc);
+			goto reg_lvs6_put;
+		}
+
+		rc = regulator_disable(pm8921_lvs6);
+		if (rc) {
+			pr_err("%s: regulator_enable of pm8921_lvs6 failed(%d)\n",
+				__func__, rc);
+			goto reg_lvs6_put;
+		}
+	}
+
+	
+#if defined(CONFIG_TOUCHSCREEN_VIRTUAL_KEYS)
+	cap_ts_vkeys_init();
+#endif
+
+	return rc;
+
+reg_lvs6_put:
+	regulator_put(pm8921_lvs6);
+reg_l9_put:
+	regulator_put(pm8921_l9);
+
+	return rc;
+
+}
+
+static struct cap_ts_platform_data cap_ts_platform_data = {
+	.has_vkeys = 1,		// 0 - has no vkeys
+	.param = 1861,		// until now only be used by synaptics ts driver as lcd-active-area
+	.points_needed = 5,
+	.gpio_irq = CAP_TS_GPIO_IRQ,
+	.power	= cap_ts_power,
+};
+
+static struct i2c_board_info synaptics_surf_info[] __initdata = {
+	{
+		I2C_BOARD_INFO(SYNAPTICS_I2C_RMI4_NAME, 0x22),
+		.platform_data = &cap_ts_platform_data,
+		.irq = MSM_GPIO_TO_INT(CAP_TS_GPIO_IRQ),
+	}
+};
+
+/*static struct i2c_board_info atmel_surf_info[] __initdata = {
+	{
+		I2C_BOARD_INFO(ATMEL_QT602240_NAME, 0x4a ),
+        .platform_data = &cap_ts_platform_data, 
+        .irq = MSM_GPIO_TO_INT(CAP_TS_GPIO_IRQ),
+    }
+};*/
+
+#endif
 
 static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 #ifdef CONFIG_ISL9519_CHARGER
@@ -2693,18 +3227,30 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		ARRAY_SIZE(isl_charger_i2c_info),
 	},
 #endif /* CONFIG_ISL9519_CHARGER */
+#ifdef CONFIG_TOUCHSCREEN_CYTTSP_I2C
 	{
 		I2C_SURF | I2C_FFA | I2C_FLUID,
 		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
 		cyttsp_info,
 		ARRAY_SIZE(cyttsp_info),
 	},
+#endif
+#ifdef CONFIG_TOUCHSCREEN_ATMEL_MXT
 	{
 		I2C_LIQUID,
 		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
 		mxt_device_info,
 		ARRAY_SIZE(mxt_device_info),
 	},
+#endif
+#ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI
+	{
+		I2C_SURF | I2C_FFA | I2C_FLUID,	
+		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
+		synaptics_surf_info,
+ 	  ARRAY_SIZE(synaptics_surf_info),
+	},
+#endif
 	{
 		I2C_FFA | I2C_LIQUID,
 		MSM_8960_GSBI10_QUP_I2C_BUS_ID,
@@ -2723,6 +3269,14 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		liquid_io_expander_i2c_info,
 		ARRAY_SIZE(liquid_io_expander_i2c_info),
 	},
+#ifndef CONFIG_MSM_DSPS
+	{
+		I2C_SURF | I2C_FFA | I2C_FLUID,
+		MSM_8960_GSBI12_QUP_I2C_BUS_ID,
+		msm_i2c_gsbi12_sensors_info,
+		ARRAY_SIZE(msm_i2c_gsbi12_sensors_info),
+	},
+#endif
 };
 #endif /* CONFIG_I2C */
 
@@ -2806,6 +3360,9 @@ static void __init msm8960_sim_init(void)
 	msm8960_init_fb();
 	slim_register_board_info(msm_slim_devices,
 		ARRAY_SIZE(msm_slim_devices));
+#ifdef CONFIG_USE_BCM4330 	
+	bt_power_init(); //add for BT
+#endif
 	msm_pm_set_platform_data(msm_pm_data, ARRAY_SIZE(msm_pm_data));
 	msm_pm_set_rpm_wakeup_irq(RPM_APCC_CPU0_WAKE_UP_IRQ);
 	msm_cpuidle_set_states(msm_cstates, ARRAY_SIZE(msm_cstates),
@@ -2840,6 +3397,9 @@ static void __init msm8960_rumi3_init(void)
 	slim_register_board_info(msm_slim_devices,
 		ARRAY_SIZE(msm_slim_devices));
 	msm_pm_set_platform_data(msm_pm_data, ARRAY_SIZE(msm_pm_data));
+#ifdef CONFIG_USE_BCM4330 	
+	bt_power_init(); //add for BT
+#endif
 	msm_pm_set_rpm_wakeup_irq(RPM_APCC_CPU0_WAKE_UP_IRQ);
 	msm_cpuidle_set_states(msm_cstates, ARRAY_SIZE(msm_cstates),
 				msm_pm_data);
@@ -2908,8 +3468,10 @@ static void __init msm8960_cdp_init(void)
 	msm8960_init_cam();
 	msm8960_init_mmc();
 	acpuclk_init(&acpuclk_8960_soc_data);
+#if defined (CONFIG_TOUCHSCREEN_ATMEL_MXT)	
 	if (machine_is_msm8960_liquid())
 		mxt_init_hw_liquid();
+#endif
 	register_i2c_devices();
 	msm8960_init_fb();
 	slim_register_board_info(msm_slim_devices,

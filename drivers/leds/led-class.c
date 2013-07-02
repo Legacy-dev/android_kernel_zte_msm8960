@@ -25,6 +25,14 @@
 #define LED_BUFF_SIZE 50
 
 static struct class *leds_class;
+#define ZTE_CONFIG_LED_LIGHT_INSUSPEND//added by zhang.yu_1
+#ifdef ZTE_CONFIG_LED_LIGHT_INSUSPEND
+ struct led_dev_bak{
+  unsigned long led_blink_state;
+  struct device *dev;
+};
+static struct led_dev_bak led_dev_bakeup[2];
+#endif
 
 static void led_update_brightness(struct led_classdev *led_cdev)
 {
@@ -85,6 +93,62 @@ static ssize_t led_max_brightness_store(struct device *dev,
 	return ret;
 }
 
+static ssize_t led_blink_show(struct device *dev, 
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	/* no lock needed for this */
+	led_update_brightness(led_cdev);
+
+	return snprintf(buf, LED_BUFF_SIZE, "%u\n", led_cdev->brightness);
+}
+
+static ssize_t led_blink_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+	char *after;
+	unsigned long state = simple_strtoul(buf, &after, 10);
+	size_t count = after - buf;
+	unsigned long delay_on,delay_off;
+
+#ifdef ZTE_CONFIG_LED_LIGHT_INSUSPEND//added by zhang.yu_1
+         if(!strcmp(led_cdev->name, "led:battery_charging")){
+	         led_dev_bakeup[0].led_blink_state = state;
+	         led_dev_bakeup[0].dev = dev;			 
+         }
+
+         if(!strcmp(led_cdev->name, "led:battery_full")){
+	         led_dev_bakeup[1].led_blink_state = state;
+	         led_dev_bakeup[1].dev = dev;			 
+         }
+#endif
+
+	if (isspace(*after))
+		count++;
+
+	if (count == size) {
+		ret = count;
+
+		if (state == LED_OFF)
+		{
+		       delay_on=0;
+			delay_off=1000;   
+			led_blink_set(led_cdev, &delay_on,&delay_off);
+		}
+		else
+		{     delay_on=500;
+			delay_off=500;
+		       led_blink_set(led_cdev, &delay_on,&delay_off);
+		}
+	}
+
+	return ret;
+}
+
+
 static ssize_t led_max_brightness_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -97,6 +161,8 @@ static struct device_attribute led_class_attrs[] = {
 	__ATTR(brightness, 0644, led_brightness_show, led_brightness_store),
 	__ATTR(max_brightness, 0644, led_max_brightness_show,
 			led_max_brightness_store),
+	__ATTR(blink, 0644, led_blink_show,
+			led_blink_store),		
 #ifdef CONFIG_LEDS_TRIGGERS
 	__ATTR(trigger, 0644, led_trigger_show, led_trigger_store),
 #endif
@@ -203,8 +269,28 @@ static int led_suspend(struct device *dev, pm_message_t state)
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 
+	#ifdef ZTE_CONFIG_LED_LIGHT_INSUSPEND//added by zhang.yu_1
+	         if(led_dev_bakeup[0].led_blink_state){
+		         led_cdev = dev_get_drvdata(led_dev_bakeup[0].dev);			 	
+		         #ifdef CONFIG_LED_OFF_INSUSPEND
+						 led_cdev->brightness_set(led_cdev, 0);	        
+		         #else	 	
+		led_cdev->brightness_set(led_cdev, led_cdev->blink_brightness);
+						 #endif
+	         }
+			 
+	         if(led_dev_bakeup[1].led_blink_state){
+		         led_cdev = dev_get_drvdata(led_dev_bakeup[1].dev);			 	
+		         #ifdef CONFIG_LED_OFF_INSUSPEND		
+						 led_cdev->brightness_set(led_cdev, 0);	 	         
+		         #else	         	 	
+			led_cdev->brightness_set(led_cdev, led_cdev->blink_brightness);
+						 #endif
+	         }			 
+	#else
 	if (led_cdev->flags & LED_CORE_SUSPENDRESUME)
 		led_classdev_suspend(led_cdev);
+	#endif
 
 	return 0;
 }
@@ -296,6 +382,8 @@ void led_blink_set(struct led_classdev *led_cdev,
 	/* blink with 1 Hz as default if nothing specified */
 	if (!*delay_on && !*delay_off)
 		*delay_on = *delay_off = 500;
+
+	printk("slf led_blink_set: delay_on=%ld,delay_off=%ld\n",*delay_on,*delay_off);
 
 	led_set_software_blink(led_cdev, *delay_on, *delay_off);
 }

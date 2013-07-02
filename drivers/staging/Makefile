@@ -73,3 +73,9 @@ obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)	+= ste_rmi4/
 obj-$(CONFIG_DRM_PSB)		+= gma500/
 obj-$(CONFIG_INTEL_MEI)		+= mei/
 obj-$(CONFIG_MFD_NVEC)		+= nvec/
+
+#
+# Created by ZTE_BOOT_JIA_20120803 jia.jia
+#
+#obj-$(CONFIG_ZTE_FTM)           += zte_ftm/
+obj-y                            += zte_ftm/

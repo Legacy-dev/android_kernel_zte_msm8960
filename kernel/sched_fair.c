@@ -1975,6 +1975,47 @@ static struct task_struct *pick_next_task_fair(struct rq *rq)
 	return p;
 }
 
+#ifdef CONFIG_SCHEDSTATS
+//tcd
+extern int msm_pm_debug_mask;
+void get_max_waiting_time_ms(u64 *m)
+{
+	struct rq *rq = cpu_rq(0);
+	struct cfs_rq *cfs_rq = &rq->cfs;
+	struct sched_entity *se,*se_next=NULL;
+	u64 now;
+	unsigned long flags;
+
+	se=NULL;
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	if ((!cfs_rq->nr_running) || (se = __pick_first_entity(cfs_rq))==NULL) {
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
+		if (msm_pm_debug_mask & 0x200){
+			printk(" nr_running :%lu se null is %s\n", cfs_rq->nr_running, (se==NULL)?"true":"false");
+		}
+		*m = 0;
+		return;
+	}
+	now = rq_of(cfs_rq)->clock;	
+//	now = (u64)ktime_to_ns(ktime_get());
+	do {
+	    if (now > se->statistics.wait_start)
+		*m = max(*m, (now - se->statistics.wait_start));
+	    else if (msm_pm_debug_mask & 0x200)
+		printk("now and wait_start is %llu, %llu\n", now, se->statistics.wait_start);
+//	    printk("now %llu wait_start %llu\n", now, se->statistics.wait_start);
+//	    printk("now %llu wait_start %llu\n", (u64)1, (u64)2);
+	    
+	    se_next = __pick_next_entity(se);
+	    se = se_next;
+	} while (se_next!=NULL);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+	
+	return;
+}
+//tcd end
+#endif
+
 /*
  * Account for a descheduled task:
  */

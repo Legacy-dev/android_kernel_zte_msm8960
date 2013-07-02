@@ -12,6 +12,8 @@
 
 #include <linux/mfd/pm8xxx/pm8921-bms.h>
 
+#if 1
+//only
 static struct single_row_lut desay_5200_fcc_temp = {
 	.x		= {-20, 0, 25, 40},
 	.y		= {5690, 5722, 5722, 5727},
@@ -84,3 +86,4 @@ struct pm8921_bms_battery_data desay_5200_data = {
 	.pc_sf_lut		= &desay_5200_pc_sf,
 	.default_rbatt_mohm	= 156,
 };
+#endif

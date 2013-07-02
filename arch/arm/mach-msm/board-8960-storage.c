@@ -34,6 +34,8 @@ enum sdcc_controllers {
 	MAX_SDCC_CONTROLLER
 };
 
+
+
 /* All SDCC controllers require VDD/VCC voltage */
 static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 	/* SDCC1 : eMMC card connected */
@@ -62,7 +64,16 @@ static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 		.high_vol_level = 2950000,
 		.low_vol_level = 2950000,
 		.hpm_uA = 600000, /* 600mA */
+	},
+#ifdef CONFIG_USE_BCM4330  
+	[SDCC4] = {
+		.name = "sdc_vdd",
+		//.set_voltage_sup = 0,
+		.high_vol_level = 1800000, //voltage 1.80V,
+		.low_vol_level = 1800000,
+		.hpm_uA = 600000, /* 600mA */
 	}
+#endif	
 };
 
 /* Only slots having eMMC card will require VCCQ voltage */
@@ -122,10 +133,12 @@ static struct msm_mmc_slot_reg_data mmc_slot_vreg_data[MAX_SDCC_CONTROLLER] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC3],
 		.vddp_data = &mmc_vddp_reg_data[SDCC3],
 	},
-	/* SDCC4 : SDIO card slot connected */
+	#ifdef CONFIG_USE_BCM4330
 	[SDCC4] = {
-		.vddp_data = &mmc_vddp_reg_data[SDCC4],
-	},
+		.vdd_data = &mmc_vdd_reg_data[SDCC4],
+		//.vddp_data = &mmc_vddp_reg_data[SDCC4], //Qcom said no vddp is needed, 
+	}
+	#endif
 };
 
 /* SDC1 pad data */
@@ -336,6 +349,8 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 	.status_irq	= PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 26),
 	.irq_flags	= IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 	.is_status_gpio_active_low = true,
+#else
+       .enable_polling_timer = 1,
 #endif
 	.xpc_cap	= 1,
 	.uhs_caps	= (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
@@ -346,22 +361,33 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 };
 #endif
 
+#ifdef CONFIG_USE_BCM4330
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
 static unsigned int sdc4_sup_clk_rates[] = {
-	400000, 24000000, 48000000
+	400000, 24000000, 48000000 //48a000000
 };
-
 static struct mmc_platform_data msm8960_sdc4_data = {
-	.ocr_mask       = MMC_VDD_165_195,
+	.ocr_mask       = MMC_VDD_165_195 | MMC_VDD_27_28 | MMC_VDD_28_29, 
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
-	.sup_clk_table  = sdc4_sup_clk_rates,
-	.sup_clk_cnt    = ARRAY_SIZE(sdc4_sup_clk_rates),
-	.pclk_src_dfab  = 1,
-	.vreg_data      = &mmc_slot_vreg_data[SDCC4],
-	.pin_data       = &mmc_slot_pin_data[SDCC4],
-	.sdiowakeup_irq = MSM_GPIO_TO_INT(85),
-	.msm_bus_voting_data = &sps_to_ddr_bus_voting_data,
+	.sup_clk_table	= sdc4_sup_clk_rates,
+	.sup_clk_cnt	= ARRAY_SIZE(sdc4_sup_clk_rates),
+	//.wpswitch_gpio	= PM8921_GPIO_PM_TO_SYS(16),/*WIFI does not need SD crad HW detect, */
+	//.sdcc_v4_sup	= false,
+	.vreg_data	= &mmc_slot_vreg_data[SDCC4],
+//	.pin_data	= &mmc_slot_pin_data[SDCC4],
+#if 0//WIFI does not need SD crad HW detect, 
+#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
+	.status_gpio	= PM8921_GPIO_PM_TO_SYS(26),
+	.status_irq	= PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 26),
+	.irq_flags	= IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+#endif
+#endif//WIFI does not need SD crad HW detect, 
+	.xpc_cap	= 1,
+	.uhs_caps	= (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
+			MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_DDR50 |
+			MMC_CAP_MAX_CURRENT_600)
 };
+#endif
 #endif
 
 void __init msm8960_init_mmc(void)
@@ -380,8 +406,10 @@ void __init msm8960_init_mmc(void)
 	/* SDC3: External card slot */
 	msm_add_sdcc(3, &msm8960_sdc3_data);
 #endif
+#ifdef CONFIG_USE_BCM4330
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
-	/* SDC4: SDIO slot for WLAN */
 	msm_add_sdcc(4, &msm8960_sdc4_data);
 #endif
+#endif
+
 }

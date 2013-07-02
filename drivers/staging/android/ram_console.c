@@ -23,6 +23,7 @@
 #include <linux/io.h>
 #include <linux/platform_data/ram_console.h>
 
+
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
 #include <linux/rslib.h>
 #endif
@@ -155,6 +156,14 @@ void ram_console_enable_console(int enabled)
 		ram_console.flags &= ~CON_ENABLED;
 }
 
+//tcd add start
+#define MSM_RAM_CONSOLE_PHYS  0x88D00000
+#define LOG_BUF_LEN 0x20000
+
+char *zte_log_buf = NULL;
+char *zte_log_buf_bak = NULL;
+//tcd end
+
 static void __init
 ram_console_save_old(struct ram_console_buffer *buffer, const char *bootinfo,
 	char *dest)
@@ -237,12 +246,27 @@ ram_console_save_old(struct ram_console_buffer *buffer, const char *bootinfo,
 		memcpy(ptr, bootinfo, bootinfo_size);
 		ptr += bootinfo_size;
 	}
+//tcd add start, temp comment it off
+#if 0
+	{
+		char *tmp = ioremap_nocache(MSM_RAM_CONSOLE_PHYS-LOG_BUF_LEN, LOG_BUF_LEN); 
+		zte_log_buf_bak = ioremap_nocache(MSM_RAM_CONSOLE_PHYS-LOG_BUF_LEN*2, LOG_BUF_LEN); 
+
+		if (zte_log_buf_bak && tmp){
+		    memcpy(zte_log_buf_bak, tmp, LOG_BUF_LEN);
+		    iounmap(zte_log_buf_bak);
+		    zte_log_buf = tmp;
+		}
+	}
+#endif
+//tcd end
 }
 
 static int __init ram_console_init(struct ram_console_buffer *buffer,
 				   size_t buffer_size, const char *bootinfo,
 				   char *old_buf)
 {
+	uint32_t reuse = 0;
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ERROR_CORRECTION
 	int numerr;
 	uint8_t *par;
@@ -309,15 +333,18 @@ static int __init ram_console_init(struct ram_console_buffer *buffer,
 			       "size %d, start %d\n",
 			       buffer->size, buffer->start);
 			ram_console_save_old(buffer, bootinfo, old_buf);
+			reuse = 1;
 		}
 	} else {
 		printk(KERN_INFO "ram_console: no valid data in buffer "
 		       "(sig = 0x%08x)\n", buffer->sig);
 	}
 
-	buffer->sig = RAM_CONSOLE_SIG;
-	buffer->start = 0;
-	buffer->size = 0;
+	if (!reuse) {
+		buffer->sig = RAM_CONSOLE_SIG;
+		buffer->start = 0;
+		buffer->size = 0;
+	}
 
 	register_console(&ram_console);
 #ifdef CONFIG_ANDROID_RAM_CONSOLE_ENABLE_VERBOSE
@@ -399,14 +426,44 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	return count;
 }
 
+
+static ssize_t log_buffer_read_old(struct file *file, char __user *buf,
+				    size_t len, loff_t *offset)
+{
+	loff_t pos = *offset;
+	ssize_t count = LOG_BUF_LEN;
+
+	if (pos >= LOG_BUF_LEN)
+		return 0;
+
+//	printk("read_logbuf start2 %d",mark);
+
+	if (zte_log_buf_bak==NULL)
+		return 0;
+
+	count = min(len, (size_t)(count - pos));
+	if (copy_to_user(buf, zte_log_buf_bak + pos, count))
+		return -EFAULT;
+
+	*offset += count;
+//	printk("read_logbuf end");
+	return count;
+}
+
+
 static const struct file_operations ram_console_file_ops = {
 	.owner = THIS_MODULE,
 	.read = ram_console_read_old,
 };
 
+static const struct file_operations log_buffer_file_ops = {
+	.owner = THIS_MODULE,
+	.read = log_buffer_read_old,
+};
+
 static int __init ram_console_late_init(void)
 {
-	struct proc_dir_entry *entry;
+	struct proc_dir_entry *entry, *entry2=NULL;
 
 	if (ram_console_old_log == NULL)
 		return 0;
@@ -431,6 +488,18 @@ static int __init ram_console_late_init(void)
 
 	entry->proc_fops = &ram_console_file_ops;
 	entry->size = ram_console_old_log_size;
+
+//tcd add start	
+
+	entry2 = create_proc_entry("last_logbuf", S_IFREG | S_IRUGO, NULL);
+	if (!entry2) {
+		printk(KERN_ERR "log_buffer: failed to create proc entry\n");
+		return 0;
+	}
+
+	entry2->proc_fops = &log_buffer_file_ops;
+	entry2->size = LOG_BUF_LEN;
+//end
 	return 0;
 }
 
@@ -440,4 +509,3 @@ console_initcall(ram_console_early_init);
 postcore_initcall(ram_console_module_init);
 #endif
 late_initcall(ram_console_late_init);
-

@@ -156,6 +156,8 @@ struct ci13xxx {
 	int                        softconnect; /* is pull-up enable allowed */
 	struct otg_transceiver    *transceiver; /* Transceiver struct */
 	unsigned long dTD_update_fail_count;
+	//struct work_struct event_work; /*online and offline uevent*/
+	struct switch_dev sdev;
 };
 
 /******************************************************************************

@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  *
  */
+ //
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
 #include <linux/module.h>
@@ -1788,7 +1789,7 @@ void pm8921_bms_charging_began(void)
 	calculate_cc_uah(the_chip, raw.cc, &bms_start_cc_uah);
 	pm_bms_masked_write(the_chip, BMS_TOLERANCES,
 			IBAT_TOL_MASK, IBAT_TOL_DEFAULT);
-	pr_debug("start_percent = %u%%\n", the_chip->start_percent);
+	printk("pm8921 BMS start_percent = %u%%\n", the_chip->start_percent);
 }
 EXPORT_SYMBOL_GPL(pm8921_bms_charging_began);
 
@@ -2175,6 +2176,7 @@ static int64_t read_battery_id(struct pm8921_bms_chip *chip)
 #define PALLADIUM_ID_MAX	0x7F5A
 #define DESAY_5200_ID_MIN	0x7F7F
 #define DESAY_5200_ID_MAX	0x802F
+#if 0
 static int set_battery_data(struct pm8921_bms_chip *chip)
 {
 	int64_t battery_id;
@@ -2208,8 +2210,7 @@ palladium:
 		chip->pc_temp_ocv_lut = palladium_1500_data.pc_temp_ocv_lut;
 		chip->pc_sf_lut = palladium_1500_data.pc_sf_lut;
 		chip->rbatt_sf_lut = palladium_1500_data.rbatt_sf_lut;
-		chip->default_rbatt_mohm
-				= palladium_1500_data.default_rbatt_mohm;
+		chip->default_rbatt_mohm= palladium_1500_data.default_rbatt_mohm;
 		chip->delta_rbatt_mohm = palladium_1500_data.delta_rbatt_mohm;
 		return 0;
 desay:
@@ -2222,7 +2223,34 @@ desay:
 		chip->delta_rbatt_mohm = desay_5200_data.delta_rbatt_mohm;
 		return 0;
 }
+#else
+static int set_battery_data(struct pm8921_bms_chip *chip)
+{
+	int64_t battery_id;
 
+	battery_id = read_battery_id(chip);
+	if (battery_id < 0) {
+		pr_err("pm8921 cannot read battery id err = %lld\n", battery_id);
+		return battery_id;
+	}
+	printk("pm8921 read battery_id=0x%llX,FCC=%d\n",battery_id,palladium_data.fcc);
+
+	chip->fcc = palladium_data.fcc;
+	chip->fcc_temp_lut = palladium_data.fcc_temp_lut;
+	chip->fcc_sf_lut = palladium_data.fcc_sf_lut;
+	chip->pc_temp_ocv_lut = palladium_data.pc_temp_ocv_lut;
+	chip->pc_sf_lut = palladium_data.pc_sf_lut;
+	chip->rbatt_sf_lut = palladium_data.rbatt_sf_lut;
+	chip->default_rbatt_mohm= palladium_data.default_rbatt_mohm;
+#if 0	
+	chip->delta_rbatt_mohm = palladium_data.delta_rbatt_mohm;
+#else
+      chip->delta_rbatt_mohm = 60;  //qualcomm reference setting 20120626
+#endif
+
+	return 0;
+}
+#endif
 enum bms_request_operation {
 	CALC_RBATT,
 	CALC_FCC,

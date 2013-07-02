@@ -345,7 +345,6 @@ struct msmsdcc_host {
 	void __iomem		*bam_base;
 
 	int			pdev_id;
-
 	struct msmsdcc_curr_req	curr;
 
 	struct mmc_host		*mmc;
@@ -409,10 +408,25 @@ struct msmsdcc_host {
 	bool sdcc_irq_disabled;
 	bool sdcc_suspended;
 	bool sdio_wakeupirq_disabled;
+
+        //ruanmeisi
+	struct timer_list polling_timer;
+	int              enable_polling_timer;
+	//end
+        
+        //ruanmeisi_091224 redetect worker
+	struct work_struct	redetect;
+
+	//ruanmeisi_20100618
+
+	struct workqueue_struct   *workqueue;
+	struct delayed_work	cmd_timeout_work;
+	struct mmc_request	*timeout_mrq;
 	bool pending_resume;
 	struct msmsdcc_msm_bus_vote msm_bus_vote;
 	struct device_attribute	max_bus_bw;
 	struct device_attribute	polling;
+	struct device_attribute	inserted;
 };
 
 int msmsdcc_set_pwrsave(struct mmc_host *mmc, int pwrsave);

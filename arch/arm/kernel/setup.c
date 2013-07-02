@@ -60,6 +60,14 @@
 #define MEM_SIZE	(16*1024*1024)
 #endif
 
+
+//ZTE_RIL_RJG_20120630 begin
+#ifdef CONFIG_ZTE_SDLOG
+extern int sdlog_flag;
+#define SOCINFO_CMDLINE_SDLOG_ENABLE          "sdlog.flag=enable"
+#endif
+//ZTE_RIL_RJG_20120630 end
+
 #if defined(CONFIG_FPE_NWFPE) || defined(CONFIG_FPE_FASTFPE)
 char fpe_type[8];
 
@@ -871,6 +879,16 @@ static struct machine_desc * __init setup_machine_tags(unsigned int nr)
 
 	/* parse_early_param needs a boot_command_line */
 	strlcpy(boot_command_line, from, COMMAND_LINE_SIZE);
+
+    //ZTE_RIL_RJG_20120630 begin
+#ifdef CONFIG_ZTE_SDLOG
+    //sdlog flag is passed from boot parameter, set the flag if sdlog is enabled
+    if (strstr(boot_command_line, SOCINFO_CMDLINE_SDLOG_ENABLE))
+    {
+        sdlog_flag = 1;
+    }
+#endif
+    //ZTE_RIL_RJG_20120630 end
 
 	return mdesc;
 }

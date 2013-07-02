@@ -305,3 +305,10 @@ config SUSPEND_TIME
 	  Prints the time spent in suspend in the kernel log, and
 	  keeps statistics on the time spent in suspend in
 	  /sys/kernel/debug/suspend_time
+
+config ZTE_HIBERNATE
+	bool "zte hibernate"
+	depends on PM && WAKELOCK
+	default y
+	---help---
+	  zte hibernate to support fastboot

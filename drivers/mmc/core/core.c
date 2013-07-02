@@ -2121,6 +2121,49 @@ void mmc_set_embedded_sdio_data(struct mmc_host *host,
 EXPORT_SYMBOL(mmc_set_embedded_sdio_data);
 #endif
 
+//ruanmeisi_091224
+void power_off_on_host(struct mmc_host *host);
+void mmc_redetect_card(struct mmc_host *host)
+{
+
+	if (NULL == host) {
+		return ;
+	}
+	printk(KERN_ERR"%s:line:%d %s\n", mmc_hostname(host), __LINE__, __FUNCTION__);
+	power_off_on_host(host);
+	//mmc_stop_host(host);
+	//mmc_start_host(host);
+}
+
+EXPORT_SYMBOL(mmc_redetect_card);
+
+int queue_redetect_work(struct work_struct *work)
+{
+	return queue_work(workqueue, work);
+}
+EXPORT_SYMBOL(queue_redetect_work);
+
+//ruanmeisi_20100702
+void power_off_on_host(struct mmc_host *host)
+{
+	mmc_claim_host(host);
+	mmc_power_off(host);
+	msleep(1000);
+	mmc_power_up(host);
+	mmc_release_host(host);
+}
+
+EXPORT_SYMBOL(power_off_on_host);
+void power_off_on_host_nolock(struct mmc_host *host)
+{
+
+	mmc_power_off(host);
+	msleep(1000);
+	mmc_power_up(host);
+
+}
+EXPORT_SYMBOL(power_off_on_host_nolock);
+//end
 static int __init mmc_init(void)
 {
 	int ret;

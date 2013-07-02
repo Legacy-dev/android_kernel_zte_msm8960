@@ -189,6 +189,10 @@
 #define MSM_CAM_IOCTL_MCTL_DIVERT_DONE \
 	_IOR(MSM_CAM_IOCTL_MAGIC, 52, struct msm_cam_evt_divert_frame *)
 
+#define MSM_CAM_IOCTL_FLASH_MODE_CTRL \
+	_IOW(MSM_CAM_IOCTL_MAGIC, 53, struct flash_ctrl_data *)
+
+
 struct msm_mctl_pp_cmd {
 	int32_t  id;
 	uint16_t length;
@@ -770,7 +774,7 @@ struct msm_snapshot_pp_status {
 #define CFG_SET_ACTUATOR_INFO		34
 #define CFG_GET_ACTUATOR_INFO		35
 #define CFG_MAX			36
-
+#define CFG_SET_AF              37//added by CDZ_CAM_ZTE for AF of yuv sensor
 
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
@@ -942,6 +946,16 @@ enum msm_v4l2_wb_mode {
 	MSM_V4L2_WB_TWILIGHT,
 	MSM_V4L2_WB_SHADE,
 	MSM_V4L2_WB_OFF,
+};
+
+enum msm_v4l2_brightness_mode {
+	MSM_V4L2_BRIGHTNESS_L0,
+	MSM_V4L2_BRIGHTNESS_L1,
+	MSM_V4L2_BRIGHTNESS_L2,
+	MSM_V4L2_BRIGHTNESS_L3,
+	MSM_V4L2_BRIGHTNESS_L4,
+	MSM_V4L2_BRIGHTNESS_L5,
+	MSM_V4L2_BRIGHTNESS_L6,
 };
 
 enum msm_v4l2_power_line_frequency {

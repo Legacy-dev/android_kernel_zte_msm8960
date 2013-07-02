@@ -1034,8 +1034,8 @@ struct platform_device msm_device_bam_dmux = {
 };
 
 static struct msm_watchdog_pdata msm_watchdog_pdata = {
-	.pet_time = 10000,
-	.bark_time = 11000,
+	.pet_time = 5000,   //change 10->5s
+	.bark_time = 15000, //change 11->15s
 	.has_secure = true,
 };
 
@@ -1178,6 +1178,38 @@ struct platform_device msm8960_device_qup_i2c_gsbi10 = {
 	.resource	= resources_qup_i2c_gsbi10,
 };
 
+//wt isp mbg 201204-19 
+//YANWEI_FLSH_ADP1650_20120328
+#if defined(CONFIG_ISPCAM) || defined(CONFIG_FLSH_ADP1650)
+static struct resource resources_qup_i2c_gsbi7[] = {
+	{
+		.name	= "gsbi_qup_i2c_addr",
+		.start	= MSM_GSBI7_PHYS,
+		.end	= MSM_GSBI7_PHYS + 4 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name	= "qup_phys_addr",
+		.start	= MSM_GSBI7_QUP_PHYS,
+		.end	= MSM_GSBI7_QUP_PHYS + MSM_QUP_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name	= "qup_err_intr",
+		.start	= GSBI7_QUP_IRQ,
+		.end	= GSBI7_QUP_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device msm8960_device_qup_i2c_gsbi7 = {
+	.name		= "qup_i2c",
+	.id		= 7,
+	.num_resources	= ARRAY_SIZE(resources_qup_i2c_gsbi7),
+	.resource	= resources_qup_i2c_gsbi7,
+};
+#endif
+
 static struct resource resources_qup_i2c_gsbi12[] = {
 	{
 		.name	= "gsbi_qup_i2c_addr",
@@ -1221,7 +1253,6 @@ struct resource msm_camera_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 };
-
 int __init msm_get_cam_resources(struct msm_camera_sensor_info *s_info)
 {
 	s_info->resource = msm_camera_resources;
@@ -1428,6 +1459,37 @@ struct platform_device msm8960_device_vpe = {
 };
 #endif
 
+#ifdef CONFIG_MHL_Sii8334
+static struct resource resources_qup_i2c_gsbi5[] = {
+	{
+		.name	= "gsbi_qup_i2c_addr",
+		.start	= MSM_GSBI5_PHYS,
+		.end	= MSM_GSBI5_PHYS + 4 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name	= "qup_phys_addr",
+		.start	= MSM_GSBI5_QUP_PHYS,
+		.end	= MSM_GSBI5_QUP_PHYS + MSM_QUP_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name	= "qup_err_intr",
+		.start	= GSBI5_QUP_IRQ,
+		.end	= GSBI5_QUP_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device msm8960_device_qup_i2c_gsbi5 = {
+	.name		= "qup_i2c",
+	.id		= 5,
+	.num_resources	= ARRAY_SIZE(resources_qup_i2c_gsbi5),
+	.resource	= resources_qup_i2c_gsbi5,
+};
+#endif
+
+
 #define MSM_TSIF0_PHYS       (0x18200000)
 #define MSM_TSIF1_PHYS       (0x18201000)
 #define MSM_TSIF_SIZE        (0x200)
@@ -1577,12 +1639,6 @@ static struct resource resources_qup_spi_gsbi1[] = {
 		.name   = "spi_miso",
 		.start  = 7,
 		.end    = 7,
-		.flags  = IORESOURCE_IO,
-	},
-	{
-		.name   = "spi_mosi",
-		.start  = 6,
-		.end    = 6,
 		.flags  = IORESOURCE_IO,
 	},
 	{
@@ -2906,6 +2962,44 @@ struct platform_device msm8960_device_cache_erp = {
 	.id		= -1,
 	.num_resources	= ARRAY_SIZE(msm_cache_erp_resources),
 	.resource	= msm_cache_erp_resources,
+};
+
+static struct resource msm_ebi1_ch0_erp_resources[] = {
+	{
+		.start = HSDDRX_EBI1CH0_IRQ,
+		.flags = IORESOURCE_IRQ,
+	},
+	{
+		.start = 0x00A40000,
+		.end   = 0x00A41000,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device msm8960_device_ebi1_ch0_erp = {
+	.name		= "msm_ebi_erp",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(msm_ebi1_ch0_erp_resources),
+	.resource	= msm_ebi1_ch0_erp_resources,
+};
+
+static struct resource msm_ebi1_ch1_erp_resources[] = {
+	{
+		.start = HSDDRX_EBI1CH1_IRQ,
+		.flags = IORESOURCE_IRQ,
+	},
+	{
+		.start = 0x00D40000,
+		.end   = 0x00D41000,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device msm8960_device_ebi1_ch1_erp = {
+	.name		= "msm_ebi_erp",
+	.id		= 1,
+	.num_resources	= ARRAY_SIZE(msm_ebi1_ch1_erp_resources),
+	.resource	= msm_ebi1_ch1_erp_resources,
 };
 
 static int msm8960_LPM_latency = 1000; /* >100 usec for WFI */

@@ -30,8 +30,10 @@ enum {
 	DEBUG_SUSPEND = 1U << 2,
 	DEBUG_EXPIRE = 1U << 3,
 	DEBUG_WAKE_LOCK = 1U << 4,
+	DEBUG_WAKELOCK_ZTE = 1U << 5,
 };
-static int debug_mask = DEBUG_EXIT_SUSPEND | DEBUG_WAKEUP;
+//static int debug_mask = DEBUG_EXIT_SUSPEND | DEBUG_WAKEUP;
+static int debug_mask = DEBUG_EXIT_SUSPEND | DEBUG_WAKEUP | DEBUG_SUSPEND;
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 #define WAKE_LOCK_TYPE_MASK              (0x0f)
@@ -124,6 +126,7 @@ static int print_lock_stat(struct seq_file *m, struct wake_lock *lock)
 		     ktime_to_ns(lock->stat.last_time));
 }
 
+static void dump_wake_locks(void);
 static int wakelock_stats_show(struct seq_file *m, void *unused)
 {
 	unsigned long irqflags;
@@ -142,6 +145,9 @@ static int wakelock_stats_show(struct seq_file *m, void *unused)
 			ret = print_lock_stat(m, lock);
 	}
 	spin_unlock_irqrestore(&list_lock, irqflags);
+	
+	if (debug_mask & DEBUG_WAKELOCK_ZTE)
+		dump_wake_locks();
 	return 0;
 }
 
@@ -259,7 +265,7 @@ long has_wake_lock(int type)
 	unsigned long irqflags;
 	spin_lock_irqsave(&list_lock, irqflags);
 	ret = has_wake_lock_locked(type);
-	if (ret && (debug_mask & DEBUG_WAKEUP) && type == WAKE_LOCK_SUSPEND)
+	if (ret && (debug_mask & DEBUG_SUSPEND) && type == WAKE_LOCK_SUSPEND)
 		print_active_locks(type);
 	spin_unlock_irqrestore(&list_lock, irqflags);
 	return ret;
@@ -402,6 +408,16 @@ static void expire_wake_locks(unsigned long data)
 }
 static DEFINE_TIMER(expire_timer, expire_wake_locks, 0, 0);
 
+static void dump_wake_locks(void)
+{
+	unsigned long irqflags;
+	
+	pr_info("[POWER]dump_wake_locks+++++++++\n");
+	spin_lock_irqsave(&list_lock, irqflags);	
+	print_active_locks(WAKE_LOCK_SUSPEND);	
+	spin_unlock_irqrestore(&list_lock, irqflags);
+	pr_info("[POWER]dump_wake_locks---------\n");
+}
 static int power_suspend_late(struct device *dev)
 {
 	int ret = has_wake_lock(WAKE_LOCK_SUSPEND) ? -EAGAIN : 0;
@@ -409,7 +425,11 @@ static int power_suspend_late(struct device *dev)
 	wait_for_wakeup = !ret;
 #endif
 	if (debug_mask & DEBUG_SUSPEND)
+	{		
 		pr_info("power_suspend_late return %d\n", ret);
+		if (ret!=0)
+			dump_wake_locks();
+	}
 	return ret;
 }
 
@@ -424,6 +444,61 @@ static struct platform_driver power_driver = {
 static struct platform_device power_device = {
 	.name = "power",
 };
+
+#ifdef DUMP_WAKELOCK
+static void dump_wakelock_handle(struct work_struct *work)
+{
+	while(1) {
+		msleep(2*60*1000);
+		if (!wake_lock_active(&main_wake_lock))
+			dump_wake_locks();
+		}
+}
+
+static struct workqueue_struct *dump_wakelock_wq;
+static DECLARE_WORK(dump_wakelock_work, dump_wakelock_handle);
+
+#endif
+
+#ifdef CONFIG_ZTE_HIBERNATE
+int print_hb_wakelock(int type, char *buf, int len, unsigned long on_jiff, unsigned long timeout)
+{
+	struct wake_lock *lock, *n;
+	long max_lock_sec = 0;
+	int  index = 0;
+	unsigned long irqflags;
+	
+	BUG_ON(type >= WAKE_LOCK_TYPE_COUNT);
+	spin_lock_irqsave(&list_lock, irqflags);
+	list_for_each_entry_safe(lock, n, &active_wake_locks[type], link) {
+		unsigned long j = 0;
+		if (time_after(on_jiff, lock->lock_jiff)) {
+			j = on_jiff;
+		} else {
+			j = lock->lock_jiff;
+		}
+					
+		if (!(lock->flags & WAKE_LOCK_AUTO_EXPIRE) &&
+		    time_after(jiffies, j + timeout)) {
+			int strl = strlen(lock->name);
+			max_lock_sec =
+				jiffies_to_msecs(jiffies - j)/MSEC_PER_SEC;
+			if (strl >= len - index) {
+				break;
+			}
+			strncpy(buf+index, lock->name, len-index);
+			index += strl;
+			buf[index] = '\n';
+			index++;
+		}
+	}
+	spin_unlock_irqrestore(&list_lock, irqflags);
+	return index;
+}
+
+EXPORT_SYMBOL(print_hb_wakelock);
+#endif
+
 
 void wake_lock_init(struct wake_lock *lock, int type, const char *name)
 {
@@ -446,6 +521,9 @@ void wake_lock_init(struct wake_lock *lock, int type, const char *name)
 #endif
 	lock->flags = (type & WAKE_LOCK_TYPE_MASK) | WAKE_LOCK_INITIALIZED;
 
+#ifdef CONFIG_ZTE_HIBERNATE
+	lock->lock_jiff = jiffies;
+#endif
 	INIT_LIST_HEAD(&lock->link);
 	spin_lock_irqsave(&list_lock, irqflags);
 	list_add(&lock->link, &inactive_locks);
@@ -488,6 +566,11 @@ static void wake_lock_internal(
 	long expire_in;
 
 	spin_lock_irqsave(&list_lock, irqflags);
+#ifdef CONFIG_ZTE_HIBERNATE
+	/* ruanmeisi */
+	lock->lock_jiff = jiffies;
+	/* end */
+#endif
 	type = lock->flags & WAKE_LOCK_TYPE_MASK;
 	BUG_ON(type >= WAKE_LOCK_TYPE_COUNT);
 	BUG_ON(!(lock->flags & WAKE_LOCK_INITIALIZED));
@@ -627,6 +710,7 @@ static const struct file_operations wakelock_stats_fops = {
 	.release = single_release,
 };
 
+
 static int __init wakelocks_init(void)
 {
 	int ret;
@@ -669,6 +753,14 @@ static int __init wakelocks_init(void)
 		ret = -ENOMEM;
 		goto err_suspend_work_queue;
 	}
+#ifdef DUMP_WAKELOCK
+	dump_wakelock_wq = create_singlethread_workqueue("wakelock_dump");
+	if (dump_wakelock_wq == NULL) {
+		ret = -ENOMEM;
+		goto err_suspend_work_queue;
+	}
+	queue_work(dump_wakelock_wq, &dump_wakelock_work);
+#endif
 
 #ifdef CONFIG_WAKELOCK_STAT
 	proc_create("wakelocks", S_IRUGO, NULL, &wakelock_stats_fops);

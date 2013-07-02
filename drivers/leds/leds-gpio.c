@@ -18,6 +18,7 @@
 #include <linux/of_gpio.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
+#include <linux/delay.h>
 
 #include <asm/gpio.h>
 
@@ -46,13 +47,20 @@ static void gpio_led_work(struct work_struct *work)
 	} else
 		gpio_set_value_cansleep(led_dat->gpio, led_dat->new_level);
 }
-
+#ifdef CONFIG_ZTE_SPOTLIGHTS_LEDS_GPIO
+static DEFINE_SPINLOCK(gpio_led_lock);
+#endif
 static void gpio_led_set(struct led_classdev *led_cdev,
 	enum led_brightness value)
 {
 	struct gpio_led_data *led_dat =
 		container_of(led_cdev, struct gpio_led_data, cdev);
-	int level;
+    int level;
+	
+#ifdef CONFIG_ZTE_SPOTLIGHTS_LEDS_GPIO
+   int times;
+   unsigned long irqflags;
+#endif
 
 	if (value == LED_OFF)
 		level = 0;
@@ -74,8 +82,57 @@ static void gpio_led_set(struct led_classdev *led_cdev,
 			led_dat->platform_gpio_blink_set(led_dat->gpio, level,
 							 NULL, NULL);
 			led_dat->blinking = 0;
-		} else
-			gpio_set_value(led_dat->gpio, level);
+		} 
+
+		else
+		{
+#ifdef CONFIG_ZTE_SPOTLIGHTS_LEDS_GPIO
+            if(!strcmp(led_dat->cdev.name, "flashlight"))
+            {
+                if(level)//on
+                {
+             #if 1  
+		     times=15;  //6% IFSET 
+	      #else	 
+                   if(value>LED_HALF) //full
+                      times=1;  //100% FENS:IFSET=300mA*2=600mA<---n970
+                   else if(value==LED_HALF) //half
+                      times=9;  //46% IFSET
+                   else //dim
+                      times=15;  //6% IFSET
+             #endif         
+                   
+                    printk(KERN_CRIT "flashlight %s():%d,turn on, value:%d, times:%d\n",__func__,__LINE__,value,times);
+
+                     spin_lock_irqsave(&gpio_led_lock, irqflags);
+					 
+			for(level=0;level < times;level++)   //rising edge
+                    { 
+                        gpio_set_value(led_dat->gpio, 0);
+                        udelay(3);
+                        gpio_set_value(led_dat->gpio, 1);
+                        udelay(3);
+                    }
+
+			spin_unlock_irqrestore(&gpio_led_lock, irqflags);
+			
+                    gpio_set_value(led_dat->gpio, 1);
+                }
+                else//off
+                {
+                    printk(KERN_CRIT "flashlight %s():%d,turn off\n",__func__,__LINE__);
+                    gpio_set_value(led_dat->gpio, 0);
+                }
+            }
+            else
+            {
+                gpio_set_value(led_dat->gpio, level);
+            }
+#else
+            gpio_set_value(led_dat->gpio, level);
+#endif
+        }
+		
 	}
 }
 

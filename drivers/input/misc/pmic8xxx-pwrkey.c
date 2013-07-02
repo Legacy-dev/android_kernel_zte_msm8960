@@ -22,6 +22,7 @@
 
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/input/pmic8xxx-pwrkey.h>
+#include <linux/zte_hibernate.h>
 
 #define PON_CNTL_1 0x1C
 #define PON_CNTL_PULL_UP BIT(7)
@@ -36,7 +37,35 @@ struct pmic8xxx_pwrkey {
 	struct input_dev *pwr;
 	int key_press_irq;
 	const struct pm8xxx_pwrkey_platform_data *pdata;
+	struct timer_list hibernate_timer;
 };
+
+static struct pmic8xxx_pwrkey *the_pwrkey;
+void zte_pwrkey_input(void)
+{
+    input_report_key(the_pwrkey->pwr, KEY_POWER, 1);
+	input_sync(the_pwrkey->pwr);
+
+	input_report_key(the_pwrkey->pwr, KEY_POWER, 0);
+	input_sync(the_pwrkey->pwr);
+}
+
+static void
+hibernate_timer_handle(unsigned long data)
+{
+	powerkey_press_hibernate();
+	return ;
+}
+static void hibernate_add_timer(struct pmic8xxx_pwrkey *pwrkey)
+{
+	mod_timer(&pwrkey->hibernate_timer, jiffies + HZ/2);
+}
+static void hibernate_del_timer(struct pmic8xxx_pwrkey *pwrkey)
+{
+	del_timer(&pwrkey->hibernate_timer);
+	//del_timer_sync(&pwrkey->hibernate_timer);
+}
+
 
 static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 {
@@ -44,7 +73,7 @@ static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 
 	input_report_key(pwrkey->pwr, KEY_POWER, 1);
 	input_sync(pwrkey->pwr);
-
+	hibernate_add_timer(pwrkey);
 	return IRQ_HANDLED;
 }
 
@@ -54,7 +83,7 @@ static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 
 	input_report_key(pwrkey->pwr, KEY_POWER, 0);
 	input_sync(pwrkey->pwr);
-
+	hibernate_del_timer(pwrkey);
 	return IRQ_HANDLED;
 }
 
@@ -79,6 +108,7 @@ static int pmic8xxx_pwrkey_resume(struct device *dev)
 	return 0;
 }
 #endif
+
 
 static SIMPLE_DEV_PM_OPS(pm8xxx_pwr_key_pm_ops,
 		pmic8xxx_pwrkey_suspend, pmic8xxx_pwrkey_resume);
@@ -110,7 +140,10 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	pwrkey = kzalloc(sizeof(*pwrkey), GFP_KERNEL);
 	if (!pwrkey)
 		return -ENOMEM;
-
+	init_timer(&pwrkey->hibernate_timer);
+	pwrkey->hibernate_timer.data = (unsigned long)pwrkey;
+	pwrkey->hibernate_timer.function = hibernate_timer_handle;
+	
 	pwrkey->pdata = pdata;
 
 	pwr = input_allocate_device();
@@ -158,6 +191,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	pwrkey->pwr = pwr;
 
 	platform_set_drvdata(pdev, pwrkey);
+	the_pwrkey = pwrkey;
 
 	err = request_any_context_irq(key_press_irq, pwrkey_press_irq,
 		IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_press", pwrkey);
@@ -200,7 +234,7 @@ static int __devexit pmic8xxx_pwrkey_remove(struct platform_device *pdev)
 	int key_press_irq = platform_get_irq(pdev, 1);
 
 	device_init_wakeup(&pdev->dev, 0);
-
+	del_timer_sync(&pwrkey->hibernate_timer);
 	free_irq(key_press_irq, pwrkey);
 	free_irq(key_release_irq, pwrkey);
 	input_unregister_device(pwrkey->pwr);

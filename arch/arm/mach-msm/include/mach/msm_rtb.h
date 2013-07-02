@@ -52,6 +52,10 @@ int uncached_logk(enum logk_event_type log_type, void *data);
 			} while (0)
 
 #define BRANCH_TO_NEXT_ISTR  asm volatile("b .+4\n" : : : "memory")
+
+#define MARK(X)  do { \
+	uncached_logk(LOGK_OTHER, (void *)X); \
+	} while (0)
 /*
  * both the mb and the isb are needed to ensure enough waypoints for
  * etb tracing
@@ -68,6 +72,9 @@ static inline int uncached_logk_pc(enum logk_event_type log_type,
 
 static inline int uncached_logk(enum logk_event_type log_type,
 					void *data) { return 0; }
+
+#define MARK(X)  do { \
+	} while (0)
 
 #define ETB_WAYPOINT
 #define BRANCH_TO_NEXT_ISTR

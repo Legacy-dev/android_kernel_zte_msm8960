@@ -48,6 +48,25 @@
 #include "mdp.h"
 #include "mdp4.h"
 
+//< 2012/5/18-N9210_add_lcd_factory_mode-lizhiye- < short commond here >
+static struct proc_dir_entry * d_entry;
+static int lcd_debug;
+char  module_name[50]={"0"};
+
+u32 LcdPanleID=(u32)LCD_PANEL_NOPANEL;
+void msm_fb_init_lcd_proc(void);
+static int msm_fb_lcd_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data);
+static int msm_fb_lcd_write_proc(struct file *file, const char __user *buffer,unsigned long count, void *data);
+//>2012/5/18-N9210_add_lcd_factory_mode-lizhiye
+
+
+#ifdef CONFIG_FB_MSM_LOGO
+#define INIT_IMAGE_FILE "/logo.bmp"
+extern int load_565rle_image(char *filename);
+//static int internal_fb_refcnt=0;
+//static int skip_pan_display_cnt=1; 
+#endif
+
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_NUM	3
 #endif
@@ -179,7 +198,7 @@ static void msm_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (!bl_lvl && value)
 		bl_lvl = 1;
 
-	msm_fb_set_backlight(mfd, bl_lvl);
+	msm_fb_set_backlight(mfd, bl_lvl,1);
 }
 
 static struct led_classdev backlight_led = {
@@ -367,10 +386,16 @@ static int msm_fb_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	mfd->panel_info.frame_count = 0;
-	mfd->bl_level = 0;
+	mfd->bl_level = 2;
 #ifdef CONFIG_FB_MSM_OVERLAY
 	mfd->overlay_play_enable = 1;
 #endif
+
+	//< 2012/5/18-N9210_add_lcd_factory_mode-lizhiye- < short commond here >
+	if (mfd->panel_info.type != DTV_PANEL)
+		msm_fb_init_lcd_proc();
+	//>2012/5/18-N9210_add_lcd_factory_mode-lizhiye
+
 
 	bf_supported = mdp4_overlay_borderfill_supported();
 
@@ -682,7 +707,7 @@ static struct platform_driver msm_fb_driver = {
 		   },
 };
 
-#if defined(CONFIG_HAS_EARLYSUSPEND) && defined(CONFIG_FB_MSM_MDP303)
+#if defined(CONFIG_HAS_EARLYSUSPEND) // && defined(CONFIG_FB_MSM_MDP303)
 static void memset32_io(u32 __iomem *_ptr, u32 val, size_t count)
 {
 	count >>= 2;
@@ -696,12 +721,13 @@ static void msmfb_early_suspend(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd = container_of(h, struct msm_fb_data_type,
 						    early_suspend);
-#if defined(CONFIG_FB_MSM_MDP303)
+//#if defined(CONFIG_FB_MSM_MDP303)
 	/*
 	* For MDP with overlay, set framebuffer with black pixels
 	* to show black screen on HDMI.
 	*/
 	struct fb_info *fbi = mfd->fbi;
+	msm_fb_suspend_sub(mfd);
 	switch (mfd->fbi->var.bits_per_pixel) {
 	case 32:
 		memset32_io((void *)fbi->screen_base, 0xFF000000,
@@ -711,8 +737,8 @@ static void msmfb_early_suspend(struct early_suspend *h)
 		memset32_io((void *)fbi->screen_base, 0x00, fbi->fix.smem_len);
 		break;
 	}
-#endif
-	msm_fb_suspend_sub(mfd);
+//#endif
+//	msm_fb_suspend_sub(mfd);
 }
 
 static void msmfb_early_resume(struct early_suspend *h)
@@ -723,18 +749,37 @@ static void msmfb_early_resume(struct early_suspend *h)
 }
 #endif
 
-static int unset_bl_level, bl_updated;
-static int bl_level_old;
+//static int unset_bl_level, bl_updated;
+//static int bl_level_old;
 
-void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl)
+void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl,__u32 save)
 {
+		struct msm_fb_panel_data *pdata;
+
+	pdata = (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
+
+	if ((pdata) && (pdata->set_backlight)) {
+		down(&mfd->sem);
+		if ((bkl_lvl != mfd->bl_level) || (!save)) {
+			u32 old_lvl;
+
+			old_lvl = mfd->bl_level;
+			mfd->bl_level = bkl_lvl;
+			pdata->set_backlight(mfd);
+
+			if (!save)
+				mfd->bl_level = old_lvl;
+		}
+		up(&mfd->sem);
+	}
+	#if 0//back
 	struct msm_fb_panel_data *pdata;
 
 	if (!mfd->panel_power_on || !bl_updated) {
-		unset_bl_level = bkl_lvl;
+		unset_bl_level = bkl_lvl;		
 		return;
 	} else {
-		unset_bl_level = 0;
+		unset_bl_level = 0;		
 	}
 
 	pdata = (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
@@ -742,14 +787,16 @@ void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl)
 	if ((pdata) && (pdata->set_backlight)) {
 		down(&mfd->sem);
 		if (bl_level_old == bkl_lvl) {
-			up(&mfd->sem);
+			up(&mfd->sem);			
 			return;
 		}
 		mfd->bl_level = bkl_lvl;
-		pdata->set_backlight(mfd);
+		pdata->set_backlight(mfd);		
+		
 		bl_level_old = mfd->bl_level;
 		up(&mfd->sem);
 	}
+	#endif
 }
 
 static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
@@ -758,7 +805,9 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct msm_fb_panel_data *pdata = NULL;
 	int ret = 0;
-
+	
+	printk("\nLCD %s: op_enable=%d\n", __func__, op_enable);
+	
 	if (!op_enable)
 		return -EPERM;
 
@@ -771,10 +820,21 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
 		if (!mfd->panel_power_on) {
-			msleep(16);
+
+			//msleep(16);
 			ret = pdata->on(mfd->pdev);
 			if (ret == 0) {
+				
+		#ifdef CONFIG_FB_MSM_MIPI_ZTE_LEAD// for N9120 lead panel,should change later		
+			msleep(110);
+		#else
+			msleep(30);
+		#endif
 				mfd->panel_power_on = TRUE;
+
+				//msm_fb_set_backlight(mfd,6);//pan temp
+				msm_fb_set_backlight(mfd,
+						     mfd->bl_level,0);
 
 /* ToDo: possible conflict with android which doesn't expect sw refresher */
 /*
@@ -800,8 +860,9 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 			mfd->op_enable = FALSE;
 			curr_pwr_state = mfd->panel_power_on;
+			msm_fb_set_backlight(mfd, 0,0);  
 			mfd->panel_power_on = FALSE;
-			bl_updated = 0;
+			// pan  bl_updated = 0;
 
 			msleep(16);
 			ret = pdata->off(mfd->pdev);
@@ -1343,12 +1404,18 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	     mfd->index, fbi->var.xres, fbi->var.yres, fbi->fix.smem_len);
 
 #ifdef CONFIG_FB_MSM_LOGO
-	/* Flip buffer */
-	if (!load_565rle_image(INIT_IMAGE_FILE, bf_supported))
-		;
+if (mfd->panel_info.type != DTV_PANEL) 
+	if (!load_565rle_image(INIT_IMAGE_FILE)) 	/* Flip buffer */
+	{
+		msm_fb_open(fbi, 0);//pan test
+		//internal_fb_refcnt = 1; 
+		printk("\n LCD  open fb");
+	}
 #endif
 	ret = 0;
 
+//msm_fb_pan_display(var,fbi);//pan 
+	
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	if (mfd->panel_info.type != DTV_PANEL) {
 		mfd->early_suspend.suspend = msmfb_early_suspend;
@@ -1550,14 +1617,31 @@ static int msm_fb_release(struct fb_info *info, int user)
 
 DEFINE_SEMAPHORE(msm_fb_pan_sem);
 
+int ondemand2_start = 0;
+
+#define SAMPLES 15
+static u32 fb_fps = 0;//0 means no update, 1 means 200ms update exceed 8, that is 40fps
+u32 fc = 0;
+
+static u32 fb_timestamp[SAMPLES];
+static int fb_idx = 0;
 static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			      struct fb_info *info)
 {
 	struct mdp_dirty_region dirty;
 	struct mdp_dirty_region *dirtyPtr = NULL;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	struct msm_fb_panel_data *pdata;
-
+	// pan   struct msm_fb_panel_data *pdata;
+	
+#if 0//def CONFIG_FB_MSM_LOGO //pan add
+	struct fb_info *fbi = mfd->fbi; 
+	if( internal_fb_refcnt && (skip_pan_display_cnt--)==0)
+	{
+		msm_fb_release(fbi, 0); 
+ 		internal_fb_refcnt = 0; 
+	}
+#endif
+		
 	/*
 	 * If framebuffer is 1 or 2, io pen display is not allowed.
 	 */
@@ -1643,7 +1727,7 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			     (var->activate == FB_ACTIVATE_VBL));
 	mdp_dma_pan_update(info);
 	up(&msm_fb_pan_sem);
-
+#if 0//back
 	if (unset_bl_level && !bl_updated) {
 		pdata = (struct msm_fb_panel_data *)mfd->pdev->
 			dev.platform_data;
@@ -1656,9 +1740,36 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			bl_updated = 1;
 		}
 	}
-
+#endif
 	++mfd->panel_info.frame_count;
+	fc = mfd->panel_info.frame_count;
+	if (ondemand2_start == 1) {
+		struct timeval now;
+		do_gettimeofday(&now);
+		++fb_idx;
+		fb_idx=fb_idx%SAMPLES;
+		fb_timestamp[fb_idx] = now.tv_sec * 1000 + now.tv_usec/1000;
+	}
 	return 0;
+}
+
+u32 update_fps(void)
+{
+    if (ondemand2_start == 1) {
+	struct timeval now;
+        u32 now_ms;
+	int prev_idx = (fb_idx==(SAMPLES-1))?0:(fb_idx+1);
+
+	do_gettimeofday(&now);
+	now_ms = now.tv_sec * 1000 + now.tv_usec/1000;
+	if ((now_ms - fb_timestamp[fb_idx]) >= 1000){
+		fb_fps = 0;
+	} else if (now_ms > fb_timestamp[prev_idx]){
+		fb_fps = 1000*SAMPLES/(now_ms - fb_timestamp[prev_idx]);
+	}
+
+    }
+    return fb_fps;
 }
 
 static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
@@ -2759,7 +2870,7 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 	int	ret;
 	struct msmfb_overlay_data req;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	struct msm_fb_panel_data *pdata;
+	//pan struct msm_fb_panel_data *pdata;
 
 	if (mfd->overlay_play_enable == 0)	/* nothing to do */
 		return 0;
@@ -2791,6 +2902,7 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 
 	ret = mdp4_overlay_play(info, &req);
 
+#if 0//back
 	if (unset_bl_level && !bl_updated) {
 		pdata = (struct msm_fb_panel_data *)mfd->pdev->
 			dev.platform_data;
@@ -2803,7 +2915,7 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 			bl_updated = 1;
 		}
 	}
-
+#endif
 	return ret;
 }
 
@@ -3647,6 +3759,230 @@ int get_fb_phys_info(unsigned long *start, unsigned long *len, int fb_num,
 	return 0;
 }
 EXPORT_SYMBOL(get_fb_phys_info);
+
+//< 2012/5/18-N9210_add_lcd_factory_mode-lizhiye- < short commond here >
+static int msm_fb_lcd_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int len = 0;
+    printk("lizhiye, msm_fb_lcd_read_proc, LcdPanleID = %d\n", LcdPanleID);
+	
+	switch(LcdPanleID)
+	{
+		case LCD_PANEL_P726_ILI9325C:
+			strcpy(module_name,"1");
+			break;
+		case LCD_PANEL_P726_HX8347D:
+			strcpy(module_name,"2");
+			break;
+		case LCD_PANEL_P726_S6D04M0X01:
+			strcpy(module_name,"3");
+			break;
+		case LCD_PANEL_P722_HX8352A:
+			strcpy(module_name,"10");
+			break;
+		case LCD_PANEL_P727_HX8352A:
+			strcpy(module_name,"20");
+			break;
+		case LCD_PANEL_R750_ILI9481_1:
+			strcpy(module_name,"30");
+			break;
+		case LCD_PANEL_R750_ILI9481_2:
+			strcpy(module_name,"31");
+			break;
+		case LCD_PANEL_R750_ILI9481_3:
+			strcpy(module_name,"32");
+			break;
+		case LCD_PANEL_P729_TL2796:
+			strcpy(module_name,"40");
+			break;
+		case LCD_PANEL_P729_TFT_LEAD:
+			strcpy(module_name,"42");
+			break;
+		case LCD_PANEL_P729_TFT_TRULY:
+			strcpy(module_name,"41");
+			break;
+		case LCD_PANEL_P729_TFT_LEAD_CMI:
+			strcpy(module_name,"zteLEAD(Himax8363+CMI)_480*800_3.5Inch");
+			break;
+		case LCD_PANEL_P729_TFT_TRULY_LG:
+			strcpy(module_name,"zteTRULY(Himax8369+LG)_480*800_3.5Inch");
+			break;
+		case LCD_PANEL_P729_TFT_LEAD_CASIO:
+			strcpy(module_name,"zteLEAD(Himax8363+CASIO)_480*800_3.5Inch");
+			break;
+		case LCD_PANEL_V9_NT39416I:
+			strcpy(module_name,"50");
+			break;	
+		case LCD_PANEL_4P3_NT35510:
+			strcpy(module_name,"60");
+			break;
+		case LCD_PANEL_4P3_HX8369A:
+			strcpy(module_name,"61");
+			break;
+		case LCD_PANEL_3P8_NT35510_1:
+			strcpy(module_name,"70");
+			break;
+		case LCD_PANEL_3P8_NT35510_2:
+			strcpy(module_name,"71");
+			break;
+		case LCD_PANEL_3P8_HX8363A:
+			strcpy(module_name,"72");
+			break;
+		case LCD_PANEL_3P5_ILI9481_1:
+			strcpy(module_name,"80");
+			break;
+		case LCD_PANEL_3P5_ILI9481_2:
+			strcpy(module_name,"81");
+			break;
+		case LCD_PANEL_3P5_R61581:
+			strcpy(module_name,"82");
+			break;
+		case LCD_PANEL_2P6_HX8368A_1:
+			strcpy(module_name,"90");
+			break;
+		case LCD_PANEL_2P6_HX8368A_2:
+			strcpy(module_name,"91");
+			break;
+        case LCD_PANEL_3P5_HX8369_LG:
+			strcpy(module_name,"zteLEAD(Himax8369+LG)_480*800_3.5Inch");
+			break;
+		case LCD_PANEL_3P5_HX8369_HYDIS:
+			strcpy(module_name,"zteTRULYorYS(Himax8369+HYDIS)_480*800_3.5Inch");
+			break;
+		case LCD_PANEL_4P0_NT35510_HYDIS_YUSHUN:
+			strcpy(module_name,"zteYS(NT35510+HYDIS)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HX8369_LG_TRULY:
+			strcpy(module_name,"zteTRULYorLEAD(Himax8369+LG)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HX8369_LG_LEAD:
+			strcpy(module_name,"zteTRULYorLEAD(Himax8369+LG)_480*800_4.0Inch");
+			break;			
+		case LCD_PANEL_3P5_N766_R61581_TRULY:
+			strcpy(module_name,"zteTRULY(R61581)_320*480_3.5Inch");
+			break;
+		case LCD_PANEL_3P5_N766_R61581_TRULY_VER2:
+			strcpy(module_name,"zteTRULY_VER2(R61581)_320*480_3.5Inch");
+			break;			
+		case LCD_PANEL_3P5_N766_R61581_BOE:
+			strcpy(module_name,"zteBOE(R61581)_320*480_3.5Inch");
+			break;
+		case LCD_PANEL_3P5_N766_HX8357C_YUSHUN:
+			strcpy(module_name,"zteYUSHUN(HX8357C)_320*480_3.5Inch");
+			break;
+		case LCD_PANEL_4P0_HX8363_CMI_YASSY:
+			strcpy(module_name,"zteYASSY(Himax8363+CMI)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_3P5_N766_HX8357C_LEAD:
+			strcpy(module_name,"zteLEAD(Himax8357C)_320*480_3.5Inch");
+			break;
+		case LCD_PANEL_4P0_NT35510_LEAD:
+			strcpy(module_name,"zteLEAD(NT35510)_480*800_4.0Inch");
+			break;
+			
+		case LCD_PANEL_4P0_HIMAX8369_TIANMA_TN:
+			strcpy(module_name,"zteTIANMA_TN(HIMAX8369)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HIMAX8369_TIANMA_IPS:
+			strcpy(module_name,"zteTIANMA_IPS(HIMAX8369)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HIMAX8369_LEAD:
+			strcpy(module_name,"zteLEAD(HIMAX8369)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HIMAX8369_LEAD_HANNSTAR:
+			strcpy(module_name,"zteLEAD_HANNSTAR(HIMAX8369)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_R61408_TRULY_LG:
+			strcpy(module_name,"zteTRULY_LG(R61408)_480*800_4.0Inch");
+			break;
+		case LCD_PANEL_4P0_HX8363_IVO_YUSHUN:
+			strcpy(module_name,"zteYUSHUN_IVO(HX8363)_480*800_4.0Inch");
+			break;		
+		case LCD_PANEL_3P95_HX8357_BOE_BOE:
+			strcpy(module_name,"zteBOE(Hx8357)_320*480_3.95Inch");
+			break;	
+		case LCD_PANEL_3P95_HX8357_TIANMA_TIANMA:
+			strcpy(module_name,"zteTIANMA(Hx8357)_320*480_3.95Inch");
+			break;	
+		case LCD_PANEL_3P95_HX8357_IVO_YUSHUN:
+			strcpy(module_name,"zteYS_IVO(Hx8357)_320*480_3.95Inch");
+			break;	
+		case LCD_PANEL_3P95_HX8357_HANSTAR_LEAD:
+			strcpy(module_name,"zteLEAD_HANSTAR(Hx8357)_320*480_3.95Inch");
+			break;		
+		case LCD_PANEL_3P5_ILI9486_YUSHUN:
+			strcpy(module_name,"zteYS_IVO(ILI9486)_320*480_3.5Inch");
+			break;	
+		case LCD_PANEL_3P5_HX8357_TRULY:
+			strcpy(module_name,"zteTRULY_CMI(Hx8357)_320*480_3.5Inch");
+			break;	
+		case LCD_PANEL_3P5_HX8357_LEAD:
+			strcpy(module_name,"zteLEAD_CPT(Hx8357)_320*480_3.5Inch");
+			break;	
+		case LCD_PANEL_3P5_HX8357_BOE:
+			strcpy(module_name,"zteBOE(Hx8357)_320*480_3.5Inch");
+			break;	
+		case LCD_PANEL_4P3_NT35516_AUO_LEAD:
+			strcpy(module_name,"zteLEAD_AUO(NT35516)_540*960_4.3Inch");
+			break;
+		case LCD_PANEL_4P3_NT35516_LG_TRULY:
+			strcpy(module_name,"zteTRULY_LG(NT35516)_540*960_4.3Inch");
+			break;
+			
+		case LCD_PANEL_MAX:
+		case LCD_PANEL_NOPANEL:
+			break;
+		default:
+			strcpy(module_name,"0");
+		break;
+	}
+	len = sprintf(page, "%s\n", module_name);
+	
+	return len;
+}
+
+static int msm_fb_lcd_write_proc(struct file *file, const char __user *buffer,
+			     unsigned long count, void *data)
+{
+	char tmp[16] = {0};
+	int len = 0;
+	len = count;
+	
+	if(count > sizeof(tmp)) 
+	{
+		len = sizeof(tmp) - 1;
+	}
+	if(copy_from_user(tmp, buffer, len))
+	{
+		return -EFAULT;
+	}
+	if (strstr(tmp, "on")) 
+	{
+		lcd_debug = 1;
+	} 
+	else if (strstr(tmp, "off")) 
+	{
+		lcd_debug = 0;
+	}
+	
+	return count;
+}
+
+void  msm_fb_init_lcd_proc(void)
+{
+	printk("lizhiye, msm_fb_init_lcd_proc\n");
+	
+	d_entry = create_proc_entry("msm_lcd", 0, NULL);
+	
+	if(d_entry) 
+	{
+		d_entry->read_proc = msm_fb_lcd_read_proc;
+		d_entry->write_proc = msm_fb_lcd_write_proc;
+		d_entry->data = NULL;
+	}
+}
+//>2012/5/18-N9210_add_lcd_factory_mode-lizhiye
+
 
 int __init msm_fb_init(void)
 {

@@ -32,6 +32,7 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include "wcd9310.h"
+#include <sound/zte_audio_def.h>
 
 #define WCD9310_RATES (SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|\
 			SNDRV_PCM_RATE_32000|SNDRV_PCM_RATE_48000)
@@ -1371,6 +1372,32 @@ static int tabla_codec_enable_anc(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+static bool tabla_hs_gpio_level_remove(struct tabla_priv *tabla);
+
+static bool tabla_hs_skip_btn_press(struct tabla_priv *tabla)
+{
+    bool ret = false;
+
+#if 0
+    if ((tabla_hs_gpio_level_remove(tabla))
+        || (PLUG_TYPE_HEADSET != tabla->current_plug))
+    {
+        ret = true;
+    }
+#else
+    if (tabla_hs_gpio_level_remove(tabla))
+    {
+        ret = true;
+    }
+#endif
+
+    pr_err("chenjun:%s:skip btn(%d)\n", __func__, ret);
+
+    return ret;
+}
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+
 /* called under codec_resource_lock acquisition */
 static void tabla_codec_start_hs_polling(struct snd_soc_codec *codec)
 {
@@ -1693,6 +1720,98 @@ static void tabla_codec_switch_micbias(struct snd_soc_codec *codec,
 	return __tabla_codec_switch_micbias(codec, vddio_switch, true, true);
 }
 
+#if defined(CONFIG_US_EURO_SWITCH)
+// same as __tabla_codec_switch_micbias except override
+static void US_EURO_switch_micbias(struct snd_soc_codec *codec,
+					 int vddio_switch, bool restartpolling,
+					 bool checkpolling)
+{
+	int cfilt_k_val;
+#if 1
+	bool override;
+#endif
+	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+
+	if (vddio_switch && !tabla->mbhc_micbias_switched &&
+	    (!checkpolling || tabla->mbhc_polling_active)) {
+		if (restartpolling)
+			tabla_codec_pause_hs_polling(codec);
+#if 1
+		override = snd_soc_read(codec, TABLA_A_CDC_MBHC_B1_CTL) & 0x04;
+		if (!override)
+			tabla_turn_onoff_override(codec, true);
+#endif
+		/* Adjust threshold if Mic Bias voltage changes */
+		if (tabla->mbhc_data.micb_mv != VDDIO_MICBIAS_MV) {
+			cfilt_k_val = tabla_find_k_value(
+						   tabla->pdata->micbias.ldoh_v,
+						   VDDIO_MICBIAS_MV);
+			usleep_range(10000, 10000);
+			snd_soc_update_bits(codec,
+					    tabla->mbhc_bias_regs.cfilt_val,
+					    0xFC, (cfilt_k_val << 2));
+			usleep_range(10000, 10000);
+			snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B1_CTL,
+				      tabla->mbhc_data.adj_v_ins_hu & 0xFF);
+			snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B2_CTL,
+				      (tabla->mbhc_data.adj_v_ins_hu >> 8) &
+				       0xFF);
+			pr_debug("%s: Programmed MBHC thresholds to VDDIO\n",
+				 __func__);
+		}
+
+		/* enable MIC BIAS Switch to VDDIO */
+		snd_soc_update_bits(codec, tabla->mbhc_bias_regs.mbhc_reg,
+				    0x80, 0x80);
+		snd_soc_update_bits(codec, tabla->mbhc_bias_regs.mbhc_reg,
+				    0x10, 0x00);
+#if 0
+		if (!override)
+			tabla_turn_onoff_override(codec, false);
+#endif
+		if (restartpolling)
+			tabla_codec_start_hs_polling(codec);
+
+		tabla->mbhc_micbias_switched = true;
+		pr_debug("%s: VDDIO switch enabled\n", __func__);
+
+	} else if (!vddio_switch && tabla->mbhc_micbias_switched) {
+		if ((!checkpolling || tabla->mbhc_polling_active) &&
+		    restartpolling)
+			tabla_codec_pause_hs_polling(codec);
+		/* Reprogram thresholds */
+		if (tabla->mbhc_data.micb_mv != VDDIO_MICBIAS_MV) {
+			cfilt_k_val = tabla_find_k_value(
+						   tabla->pdata->micbias.ldoh_v,
+						   tabla->mbhc_data.micb_mv);
+			snd_soc_update_bits(codec,
+					    tabla->mbhc_bias_regs.cfilt_val,
+					    0xFC, (cfilt_k_val << 2));
+			usleep_range(10000, 10000);
+			snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B1_CTL,
+				      tabla->mbhc_data.v_ins_hu & 0xFF);
+			snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B2_CTL,
+				      (tabla->mbhc_data.v_ins_hu >> 8) & 0xFF);
+			pr_debug("%s: Programmed MBHC thresholds to MICBIAS\n",
+				 __func__);
+		}
+
+		/* Disable MIC BIAS Switch to VDDIO */
+		snd_soc_update_bits(codec, tabla->mbhc_bias_regs.mbhc_reg,
+				    0x80, 0x00);
+		snd_soc_update_bits(codec, tabla->mbhc_bias_regs.mbhc_reg,
+				    0x10, 0x00);
+
+		if ((!checkpolling || tabla->mbhc_polling_active) &&
+		    restartpolling)
+			tabla_codec_start_hs_polling(codec);
+
+		tabla->mbhc_micbias_switched = false;
+		pr_debug("%s: VDDIO switch disabled\n", __func__);
+	}
+}
+#endif
+
 static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
@@ -1746,9 +1865,9 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		tabla_codec_update_cfilt_usage(codec, cfilt_sel_val, 1);
 
 		if (strnstr(w->name, internal1_text, 30))
-			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0x60); //1st mic
 		else if (strnstr(w->name, internal2_text, 30))
-			snd_soc_update_bits(codec, micb_int_reg, 0x1C, 0x1C);
+			snd_soc_update_bits(codec, micb_int_reg, 0x1C, 0x0C); //2nd mic
 		else if (strnstr(w->name, internal3_text, 30))
 			snd_soc_update_bits(codec, micb_int_reg, 0x3, 0x3);
 
@@ -2038,6 +2157,32 @@ static void tabla_snd_soc_jack_report(struct tabla_priv *tabla,
 {
 	/* XXX: wake_lock_timeout()? */
 	snd_soc_jack_report_no_dapm(jack, status, mask);
+
+#if defined(CONFIG_US_EURO_SWITCH)
+if (jack == tabla->mbhc_cfg.headset_jack)
+{
+    if (status & SND_JACK_HEADPHONE)
+    {
+    }
+    else
+    {
+        US_EURO_Switch(0);
+pr_err("chenjun:%s:none headphone, disable US_EURO_Switch\n", __func__);
+    }
+}
+#endif
+
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+if (jack == tabla->mbhc_cfg.headset_jack)
+{
+    pr_err("chenjun:%s:headset_jack status(%#X)\n", __func__, status);
+}
+else if (jack == tabla->mbhc_cfg.button_jack)
+{
+    pr_err("chenjun:%s:button_jack status(%#X)\n", __func__, status);
+}
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+
 }
 
 static void hphocp_off_report(struct tabla_priv *tabla,
@@ -3808,7 +3953,7 @@ static void tabla_codec_report_plug(struct snd_soc_codec *codec, int insertion,
 				tabla->buttons_pressed &=
 							~TABLA_JACK_BUTTON_MASK;
 			}
-			pr_debug("%s: Reporting removal %d\n", __func__,
+			pr_err("%s: Reporting removal %d\n", __func__,
 				 jack_type);
 			tabla_snd_soc_jack_report(tabla,
 						  tabla->mbhc_cfg.headset_jack,
@@ -3833,7 +3978,7 @@ static void tabla_codec_report_plug(struct snd_soc_codec *codec, int insertion,
 			tabla->current_plug = PLUG_TYPE_HEADSET;
 		}
 		if (tabla->mbhc_cfg.headset_jack) {
-			pr_debug("%s: Reporting insertion %d\n", __func__,
+			pr_err("%s: Reporting insertion %d\n", __func__,
 				 jack_type);
 			tabla_snd_soc_jack_report(tabla,
 						  tabla->mbhc_cfg.headset_jack,
@@ -4040,13 +4185,21 @@ static void btn_lpress_fn(struct work_struct *work)
 			bias_value = tabla_codec_read_dce_result(tabla->codec);
 			dce_mv = tabla_codec_sta_dce_v(tabla->codec, 1,
 						       bias_value);
-			pr_debug("%s: Reporting long button press event"
-				 " STA: %d, DCE: %d\n", __func__,
-				 sta_mv, dce_mv);
-			tabla_snd_soc_jack_report(tabla,
+
+			if ((tabla->in_gpio_handler) || tabla_hs_skip_btn_press(tabla))
+			{
+			    pr_debug("%s: GPIO kicked in, ignore\n", __func__);
+			}
+			else
+			{
+			    pr_err("%s: Reporting long button press event"
+ 			               " STA: %d, DCE: %d\n", __func__,
+ 			               sta_mv, dce_mv);
+			    tabla_snd_soc_jack_report(tabla,
 						  tabla->mbhc_cfg.button_jack,
 						  tabla->buttons_pressed,
 						  tabla->buttons_pressed);
+			}
 		}
 	} else {
 		pr_err("%s: Bad tabla private data\n", __func__);
@@ -4383,6 +4536,21 @@ static int tabla_determine_button(const struct tabla_priv *priv,
 		}
 	}
 
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
+	if (btn > 0)
+	{
+	    btn = 0;
+pr_err("chenjun:%s:change (%d) to (%d) only support BTN_0\n", __func__, i, btn);
+	}
+#else
+	btn = 0;
+pr_err("chenjun:%s:always return BTN_0(%d)\n", __func__, btn);
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+// 这个打印保留
+pr_err("chenjun:%s:micmv(%d):btn(%d)\n", __func__, micmv, btn);
+
 	if (btn == -1)
 		pr_debug("%s: couldn't find button number for mic mv %d\n",
 			 __func__, micmv);
@@ -4459,7 +4627,7 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 	mv = tabla_codec_sta_dce_v(codec, 1, dce);
 
 	/* If GPIO interrupt already kicked in, ignore button press */
-	if (priv->in_gpio_handler) {
+	if ((priv->in_gpio_handler) || tabla_hs_skip_btn_press(priv)) {
 		pr_debug("%s: GPIO State Changed, ignore button press\n",
 			 __func__);
 		btn = -1;
@@ -4527,7 +4695,7 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 	}
 
 	if (btn >= 0) {
-		if (priv->in_gpio_handler) {
+		if ((priv->in_gpio_handler) || tabla_hs_skip_btn_press(priv)) {
 			pr_debug("%s: GPIO already triggered, ignore button "
 				 "press\n", __func__);
 			goto done;
@@ -4536,7 +4704,7 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 		priv->buttons_pressed |= mask;
 		tabla_lock_sleep(core);
 		if (schedule_delayed_work(&priv->mbhc_btn_dwork,
-					  msecs_to_jiffies(400)) == 0) {
+					  msecs_to_jiffies(500)) == 0) { // chenjun:orig:400
 			WARN(1, "Button pressed twice without release"
 			     "event\n");
 			tabla_unlock_sleep(core);
@@ -4586,6 +4754,15 @@ static int tabla_is_fake_press(struct tabla_priv *priv)
 		}
 	}
 
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+// fake press always false
+	if (r)
+	{
+	    r = 0;
+	    pr_err("chenjun: fake press always false\n");
+	}
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+
 	return r;
 }
 
@@ -4605,7 +4782,7 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 	if (priv->buttons_pressed & TABLA_JACK_BUTTON_MASK) {
 		ret = tabla_cancel_btn_work(priv);
 		if (ret == 0) {
-			pr_debug("%s: Reporting long button release event\n",
+			pr_err("%s: Reporting long button release event\n",
 				 __func__);
 			if (priv->mbhc_cfg.button_jack)
 				tabla_snd_soc_jack_report(priv,
@@ -4613,14 +4790,14 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 						  priv->buttons_pressed);
 		} else {
 			if (tabla_is_fake_press(priv)) {
-				pr_debug("%s: Fake button press interrupt\n",
+				pr_err("%s: Fake button press interrupt\n",
 					 __func__);
 			} else if (priv->mbhc_cfg.button_jack) {
-				if (priv->in_gpio_handler) {
+				if ((priv->in_gpio_handler) || tabla_hs_skip_btn_press(priv)) {
 					pr_debug("%s: GPIO kicked in, ignore\n",
 						 __func__);
 				} else {
-					pr_debug("%s: Reporting short button "
+					pr_err("%s: Reporting short button "
 						 "press and release\n",
 						 __func__);
 					tabla_snd_soc_jack_report(priv,
@@ -4639,8 +4816,12 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 
 	tabla_codec_calibrate_hs_polling(codec);
 
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
 	if (priv->mbhc_cfg.gpio)
 		msleep(TABLA_MBHC_GPIO_REL_DEBOUNCE_TIME_MS);
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 
 	tabla_codec_start_hs_polling(codec);
 
@@ -4769,7 +4950,15 @@ static bool tabla_is_invalid_insertion_range(struct snd_soc_codec *codec,
 		invalid = true;
 	else if (mic_volt < tabla->mbhc_data.v_inval_ins_high &&
 		 (mic_volt > tabla->mbhc_data.v_inval_ins_low))
-		invalid = true;
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+		{
+		    if (!tabla->mbhc_cfg.gpio)
+		    {
+		        invalid = true;
+		    }
+		}
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+
 	return invalid;
 }
 
@@ -4779,11 +4968,56 @@ static bool tabla_is_inval_insert_delta(struct snd_soc_codec *codec,
 {
 	int delta = abs(mic_volt - mic_volt_prev);
 	if (delta > threshold) {
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
 		pr_debug("%s: volt delta %dmv\n", __func__, delta);
 		return true;
+#else
+		pr_debug("chenjun:%s: volt delta %dmv still valid\n", __func__, delta);
+		return false;
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 	}
 	return false;
 }
+#if 0
+static bool tabla_codec_is_invalid_plug(struct snd_soc_codec *codec,
+					s32 mic_mv[MBHC_NUM_DCE_PLUG_DETECT],
+					enum tabla_mbhc_plug_type
+					    plug_type[MBHC_NUM_DCE_PLUG_DETECT])
+{
+	int i;
+	bool r = false;
+	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+	struct tabla_mbhc_plug_type_cfg *plug_type_ptr =
+		TABLA_MBHC_CAL_PLUG_TYPE_PTR(tabla->mbhc_cfg.calibration);
+	s16 v_hs_max = tabla_get_current_v_hs_max(tabla);
+
+	for (i = 0 ; i < MBHC_NUM_DCE_PLUG_DETECT && !r; i++) {
+		if (mic_mv[i] < plug_type_ptr->v_no_mic)
+			plug_type[i] = PLUG_TYPE_HEADPHONE;
+		else if (mic_mv[i] < v_hs_max)
+			plug_type[i] = PLUG_TYPE_HEADSET;
+		else if (mic_mv[i] > v_hs_max)
+			plug_type[i] = PLUG_TYPE_HIGH_HPH;
+
+		r = tabla_is_invalid_insertion_range(codec, mic_mv[i], false);
+		if (!r && i > 0) {
+			if (plug_type[i-1] != plug_type[i])
+				r = true;
+			else
+				r = tabla_is_inval_insert_delta(codec,
+						  mic_mv[i], mic_mv[i - 1],
+						  TABLA_MBHC_FAKE_INS_DELTA_MV);
+		}
+	}
+
+	// 这个打印保留
+	pr_err("chenjun:%s:invalid(%d):plug_type[%d]", __func__, r, plug_type[0]);
+
+	return r;
+}
+#endif
 
 /* called under codec_resource_lock acquisition */
 void tabla_find_plug_and_report(struct snd_soc_codec *codec,
@@ -4811,10 +5045,16 @@ void tabla_find_plug_and_report(struct snd_soc_codec *codec,
 		tabla_codec_cleanup_hs_polling(codec);
 		pr_debug("setup mic trigger for further detection\n");
 		tabla->lpi_enabled = true;
+#if 0
 		tabla_codec_enable_hs_detect(codec, 1,
 					     MBHC_USE_MB_TRIGGER |
 					     MBHC_USE_HPHL_TRIGGER,
 					     false);
+#else
+		tabla_codec_enable_hs_detect(codec, 1,
+					     MBHC_USE_MB_TRIGGER,
+					     false); //chenjun
+#endif
 	}
 }
 
@@ -4950,13 +5190,24 @@ tabla_codec_get_plug_type(struct snd_soc_codec *codec, bool highhph)
 		}
 
 		if (i > 0 && (plug_type[i - 1] != plug_type[i])) {
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
 			pr_err("%s: Detect attempt %d and %d are not same",
 			       __func__, i - 1, i);
 			plug_type[0] = PLUG_TYPE_INVALID;
 			inval = true;
 			break;
+#else
+			pr_err("chenjun:%s: Detect %d and %d are not same, use type(%d)",
+			       __func__, i - 1, i, plug_type[i] );
+			plug_type[0] = plug_type[i] ;
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 		}
 	}
+
+// 这个打印保留
+pr_err("chenjun:%s:invalid(%d):plug_type(%d)", __func__, inval, plug_type[0]);
 
 	return plug_type[0];
 }
@@ -4996,7 +5247,20 @@ static void tabla_hs_correct_gpio_plug(struct work_struct *work)
 			break;
 		}
 
+#if defined(CONFIG_US_EURO_SWITCH)
+		US_EURO_switch_micbias(tabla->codec, 1, false,
+						     false);
+		pr_err("chenjun:%s:enable micbias for US_EURO_SWITCH\n", __func__);
+
+		US_EURO_Switch(0);
+		msleep(US_EURO_SWITCH_OFF_MS * 2);
+		
+		US_EURO_Switch(1);
+		msleep(US_EURO_SWITCH_ON_MS);
+#else
 		msleep(TABLA_HS_DETECT_PLUG_INERVAL_MS);
+#endif
+
 		if (tabla_hs_gpio_level_remove(tabla)) {
 			pr_debug("%s: GPIO value is low\n", __func__);
 			break;
@@ -5006,6 +5270,13 @@ static void tabla_hs_correct_gpio_plug(struct work_struct *work)
 		TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
 		plug_type = tabla_codec_get_plug_type(codec, true);
 		TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+		if (tabla_hs_gpio_level_remove(tabla)) {
+			pr_debug("%s: GPIO value is low\n", __func__);
+			break;
+		}
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 
 		if (plug_type == PLUG_TYPE_INVALID) {
 			pr_debug("Invalid plug in attempt # %d\n", retry);
@@ -5065,7 +5336,11 @@ static void tabla_codec_decide_gpio_plug(struct snd_soc_codec *codec)
 		tabla_schedule_hs_detect_plug(tabla);
 	} else if (plug_type == PLUG_TYPE_HEADPHONE) {
 		tabla_codec_report_plug(codec, 1, SND_JACK_HEADPHONE);
-
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if defined(CONFIG_US_EURO_SWITCH)
+		pr_err("chenjun:%s:go to determine US_EURO_SWITCH plug type\n", __func__);
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 		tabla_schedule_hs_detect_plug(tabla);
 	} else {
 		pr_debug("%s: Valid plug found, determine plug type %d\n",
@@ -5086,11 +5361,22 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 	 * tabla_codec_setup_hs_polling requires override on */
 	tabla_turn_onoff_override(codec, true);
 
+#if defined(CONFIG_US_EURO_SWITCH)
+	if (plug_det->t_ins_complete > 20)
+	{
+	    msleep(US_EURO_SWITCH_ON_MS * 3);
+	}
+	else
+	{
+	    msleep(US_EURO_SWITCH_ON_MS * 3);
+	}
+#else
 	if (plug_det->t_ins_complete > 20)
 		msleep(plug_det->t_ins_complete);
 	else
 		usleep_range(plug_det->t_ins_complete * 1000,
 			     plug_det->t_ins_complete * 1000);
+#endif
 
 	if (tabla->mbhc_cfg.gpio) {
 		/* Turn off the override */
@@ -5112,9 +5398,14 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 		snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_B1_CTL,
 				    0x02, 0x02);
 		tabla_codec_cleanup_hs_polling(codec);
+#if 0
 		tabla_codec_enable_hs_detect(codec, 1,
 					     MBHC_USE_MB_TRIGGER |
 					     MBHC_USE_HPHL_TRIGGER, false);
+#else
+		tabla_codec_enable_hs_detect(codec, 1,
+					     MBHC_USE_MB_TRIGGER, false);
+#endif
 	} else if (plug_type == PLUG_TYPE_HEADPHONE) {
 		pr_debug("%s: Headphone Detected\n", __func__);
 		tabla_codec_report_plug(codec, 1, SND_JACK_HEADPHONE);
@@ -5159,6 +5450,8 @@ static void tabla_hs_insert_irq_gpio(struct tabla_priv *priv, bool is_removal)
 }
 
 /* called only from interrupt which is under codec_resource_lock acquisition */
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
 static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
 				       bool is_mb_trigger)
 {
@@ -5208,6 +5501,34 @@ static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
 		}
 	}
 }
+#else
+static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
+				       bool is_mb_trigger)
+{
+	struct snd_soc_codec *codec = priv->codec;
+
+	if (is_removal) {
+		/* cancel possiblely running hs detect work */
+		tabla_cancel_hs_detect_plug(priv);
+
+		/*
+		 * If headphone is removed while playback is in progress,
+		 * it is possible that micbias will be switched to VDDIO.
+		 */
+		tabla_codec_switch_micbias(codec, 0);
+		tabla_codec_report_plug(codec, 0, SND_JACK_HEADPHONE);
+		tabla_codec_shutdown_hs_removal_detect(codec);
+		tabla_codec_enable_hs_detect(codec, 1,
+					     MBHC_USE_MB_TRIGGER,
+					     true);
+	} else  {
+		pr_debug("%s: Complete plug insertion, Detecting plug "
+				  "type\n", __func__);
+		tabla_codec_detect_plug_type(codec);
+	}
+}
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 
 static irqreturn_t tabla_hs_insert_irq(int irq, void *data)
 {
@@ -5387,10 +5708,16 @@ static void tabla_hs_remove_irq_nogpio(struct tabla_priv *priv)
 
 		tabla_codec_report_plug(codec, 0, SND_JACK_HEADSET);
 		tabla_codec_cleanup_hs_polling(codec);
+#if 0
 		tabla_codec_enable_hs_detect(codec, 1,
 					     MBHC_USE_MB_TRIGGER |
 					     MBHC_USE_HPHL_TRIGGER,
 					     true);
+#else
+		tabla_codec_enable_hs_detect(codec, 1,
+					     MBHC_USE_MB_TRIGGER,
+					     true); //chenjun
+#endif
 	} else {
 		tabla_codec_start_hs_polling(codec);
 	}
@@ -5452,6 +5779,18 @@ static void tabla_hs_gpio_handler(struct snd_soc_codec *codec)
 	pr_debug("%s: enter\n", __func__);
 
 	tabla->in_gpio_handler = true;
+
+#if defined(CONFIG_US_EURO_SWITCH)
+        if ((gpio_get_value_cansleep(tabla->mbhc_cfg.gpio) ==
+		  tabla->mbhc_cfg.gpio_level_insert)
+		  && (!tabla->mbhc_micbias_switched))
+        {
+            __tabla_codec_switch_micbias(tabla->codec, 1, false,
+						     false);
+            pr_err("chenjun:%s:enable micbias for US_EURO_SWITCH\n", __func__);
+        }
+#endif
+
 	/* Wait here for debounce time */
 	usleep_range(TABLA_GPIO_IRQ_DEBOUNCE_TIME_US,
 		     TABLA_GPIO_IRQ_DEBOUNCE_TIME_US);
@@ -5465,6 +5804,13 @@ static void tabla_hs_gpio_handler(struct snd_soc_codec *codec)
 	insert = (gpio_get_value_cansleep(tabla->mbhc_cfg.gpio) ==
 		  tabla->mbhc_cfg.gpio_level_insert);
 	if ((tabla->current_plug == PLUG_TYPE_NONE) && insert) {
+
+#if defined(CONFIG_US_EURO_SWITCH)
+        US_EURO_Switch(0);
+        msleep(US_EURO_SWITCH_OFF_MS);
+        US_EURO_Switch(1);
+#endif
+
 		tabla->lpi_enabled = false;
 		wmb();
 
@@ -5550,10 +5896,16 @@ static int tabla_mbhc_init_and_calibrate(struct tabla_priv *tabla)
 	tabla->mbhc_cfg.mclk_cb_fn(codec, 0, false);
 	tabla_codec_calibrate_hs_polling(codec);
 	if (!tabla->mbhc_cfg.gpio) {
+#if 0
 		ret = tabla_codec_enable_hs_detect(codec, 1,
 						   MBHC_USE_MB_TRIGGER |
 						   MBHC_USE_HPHL_TRIGGER,
 						   false);
+#else
+		ret = tabla_codec_enable_hs_detect(codec, 1,
+				MBHC_USE_MB_TRIGGER,
+				false); //chenjun
+#endif
 
 		if (IS_ERR_VALUE(ret))
 			pr_err("%s: Failed to setup MBHC detection\n",
@@ -5575,6 +5927,12 @@ static int tabla_mbhc_init_and_calibrate(struct tabla_priv *tabla)
 				 TABLA_IRQ_HPH_PA_OCPR_FAULT);
 
 		if (tabla->mbhc_cfg.gpio) {
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if 0
+			tabla_disable_irq(codec->control_data, TABLA_IRQ_MBHC_REMOVAL);
+			pr_debug("chenjun:using gpio detect, disable IRQ_MBHC_REMOVAL");
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 			ret = request_threaded_irq(tabla->mbhc_cfg.gpio_irq,
 					       NULL,
 					       tabla_mechanical_plug_detect_irq,
@@ -5877,7 +6235,13 @@ static const struct tabla_reg_mask_val tabla_1_1_reg_defaults[] = {
 	TABLA_REG_VAL(TABLA_A_CDC_RX2_B6_CTL, 0xA0),
 
 	/* Tabla 1.1 RX3 to RX7 Changes */
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, start */
+#if 1 // chenjun:2012-4-28:test for mono or stereo
 	TABLA_REG_VAL(TABLA_A_CDC_RX3_B6_CTL, 0x80),
+#else
+	TABLA_REG_VAL(TABLA_A_CDC_RX3_B6_CTL, 0x90),
+#endif
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, end */
 	TABLA_REG_VAL(TABLA_A_CDC_RX4_B6_CTL, 0x80),
 	TABLA_REG_VAL(TABLA_A_CDC_RX5_B6_CTL, 0x80),
 	TABLA_REG_VAL(TABLA_A_CDC_RX6_B6_CTL, 0x80),

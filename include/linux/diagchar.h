@@ -9,7 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
+/*
+2012-04-05 zhangjinhuan add 8660A macro for deal with mode ftm diag command fail ZTE-RIL-ZJH-120405
+*/
 #ifndef DIAGCHAR_SHARED
 #define DIAGCHAR_SHARED
 
@@ -48,6 +50,9 @@
 #define APQ8030_MACHINE_ID	119
 #define MSM8627_MACHINE_ID	120
 #define MSM8227_MACHINE_ID	121
+//#ifdef ZTE_PLATFORM
+#define MSM8660A_MACHINE_ID	122    //ZTE-RIL-ZJH-120405
+//#endif
 #define MSM8260A_MACHINE_ID	123
 #define MSM8974_MACHINE_ID	126
 #define APQ8060_TOOLS_ID	4062

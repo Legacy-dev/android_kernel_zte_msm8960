@@ -30,9 +30,23 @@ VREG_CONSUMERS(L1) = {
 VREG_CONSUMERS(L2) = {
 	REGULATOR_SUPPLY("8921_l2",		NULL),
 	REGULATOR_SUPPLY("dsi_vdda",		"mipi_dsi.1"),
-	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.0"),
-	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.1"),
-	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.2"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",		"msm_csid.0"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",		"msm_csid.1"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",		"msm_csid.2"),
+#if 0
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-001a"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-006c"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-0048"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-0020"),
+#else
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-0048"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-0036"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-003c"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-001e"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-0010"),
+	REGULATOR_SUPPLY("mipi_csi_vdd",	"4-002d"),
+    REGULATOR_SUPPLY("mipi_csi_vdd",	"7-001f"),
+#endif
 };
 VREG_CONSUMERS(L3) = {
 	REGULATOR_SUPPLY("8921_l3",		NULL),
@@ -71,17 +85,28 @@ VREG_CONSUMERS(L10) = {
 };
 VREG_CONSUMERS(L11) = {
 	REGULATOR_SUPPLY("8921_l11",		NULL),
+#if 0
 	REGULATOR_SUPPLY("cam_vana",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vana",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vana",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vana",		"4-0020"),
+#else
+	REGULATOR_SUPPLY("cam_vana",		"4-0048"),
+	REGULATOR_SUPPLY("cam_vana",		"4-0036"),
+	REGULATOR_SUPPLY("cam_vana",		"4-003c"),
+	REGULATOR_SUPPLY("cam_vana",		"4-001e"),
+	REGULATOR_SUPPLY("cam_vana",		"4-0010"),
+	REGULATOR_SUPPLY("cam_vana",	 	"4-002d"),
+#endif
 };
 VREG_CONSUMERS(L12) = {
 	REGULATOR_SUPPLY("8921_l12",		NULL),
+#if 0
 	REGULATOR_SUPPLY("cam_vdig",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0020"),
+#endif
 };
 VREG_CONSUMERS(L14) = {
 	REGULATOR_SUPPLY("8921_l14",		NULL),
@@ -92,10 +117,20 @@ VREG_CONSUMERS(L15) = {
 };
 VREG_CONSUMERS(L16) = {
 	REGULATOR_SUPPLY("8921_l16",		NULL),
+#if 0
 	REGULATOR_SUPPLY("cam_vaf",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0020"),
+#else
+	REGULATOR_SUPPLY("cam_vaf",		"4-0048"),
+	REGULATOR_SUPPLY("cam_vaf",		"4-0036"),
+	REGULATOR_SUPPLY("cam_vaf",		"4-003c"),
+	//REGULATOR_SUPPLY("cam_vaf",		"4-0010"),
+	REGULATOR_SUPPLY("cam_vaf",		"4-001e"),
+	REGULATOR_SUPPLY("cam_vaf",	 	"4-002d"),
+	REGULATOR_SUPPLY("cam_vaf",	 	"7-001f"),
+#endif
 };
 VREG_CONSUMERS(L17) = {
 	REGULATOR_SUPPLY("8921_l17",		NULL),
@@ -142,6 +177,7 @@ VREG_CONSUMERS(L28) = {
 };
 VREG_CONSUMERS(L29) = {
 	REGULATOR_SUPPLY("8921_l29",		NULL),
+    REGULATOR_SUPPLY("cam_vdig",	"7-001f"),
 };
 VREG_CONSUMERS(S1) = {
 	REGULATOR_SUPPLY("8921_s1",		NULL),
@@ -175,6 +211,22 @@ VREG_CONSUMERS(S4) = {
 	REGULATOR_SUPPLY("vcc_i2c",		"3-005b"),
 	REGULATOR_SUPPLY("EXT_HUB_VDDIO",	"msm_hsic_host"),
 	REGULATOR_SUPPLY("vcc_i2c",		"10-0048"),
+	REGULATOR_SUPPLY("cam_vio",		"4-0048"),
+	REGULATOR_SUPPLY("cam_vio",		"4-0036"),
+	#if defined CONFIG_MACH_DANA 
+	REGULATOR_SUPPLY("cam_vio",		"4-003c"),
+	REGULATOR_SUPPLY("cam_vio",		"4-001e"),
+	#elif defined CONFIG_MACH_HAYES 
+	REGULATOR_SUPPLY("cam_vio",		"4-003c"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-003c"),
+	#else
+	REGULATOR_SUPPLY("cam_vdig",	"4-003c"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-001e"),
+	#endif
+	
+	REGULATOR_SUPPLY("cam_vio",		"4-0010"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-0010"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-002d"),
 };
 VREG_CONSUMERS(S5) = {
 	REGULATOR_SUPPLY("8921_s5",		NULL),
@@ -208,10 +260,26 @@ VREG_CONSUMERS(LVS4) = {
 };
 VREG_CONSUMERS(LVS5) = {
 	REGULATOR_SUPPLY("8921_lvs5",		NULL),
+#if 0
 	REGULATOR_SUPPLY("cam_vio",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vio",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0020"),
+#else
+	REGULATOR_SUPPLY("cam_vdig",	"4-0048"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-0036"),
+	#if defined CONFIG_MACH_DANA 
+	REGULATOR_SUPPLY("cam_vdig",	"4-003c"),
+	REGULATOR_SUPPLY("cam_vdig",	"4-001e"),
+	#elif defined CONFIG_MACH_HAYES
+	
+	#else
+	REGULATOR_SUPPLY("cam_vio",		"4-003c"),
+	REGULATOR_SUPPLY("cam_vio",		"4-001e"),
+	#endif
+	
+	REGULATOR_SUPPLY("cam_vio",	 	"4-002d"),
+#endif
 };
 VREG_CONSUMERS(LVS6) = {
 	REGULATOR_SUPPLY("8921_lvs6",		NULL),
@@ -493,7 +561,7 @@ msm_pm8921_regulator_pdata[] __devinitdata = {
 		0, 2),
 	PM8XXX_NLDO1200(L28, "8921_l28", 0, 1, 1050000, 1050000, 200, "8921_s7",
 		0, 3),
-	PM8XXX_LDO(L29,      "8921_l29", 0, 1, 2050000, 2100000, 200, "8921_s8",
+	PM8XXX_LDO(L29,      "8921_l29", 0, 1, 1800000, 1800000, 200, "8921_s8",
 		0, 4),
 
 	/*	     ID        name      always_on pd en_t supply    reg_ID */
@@ -513,14 +581,14 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 
 	/*	ID     a_on pd ss min_uV   max_uV  supply  sys_uA init_ip */
 	RPM_LDO(L1,	 1, 1, 0, 1050000, 1050000, "8921_s4", 0, 10000),
-	RPM_LDO(L2,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
+	RPM_LDO(L2,	 0, 1, 0, 1200000, 1200000, "8921_s4", 10000, 10000),//zc
 	RPM_LDO(L3,	 0, 1, 0, 3075000, 3075000, NULL,      0, 0),
 	RPM_LDO(L4,	 1, 1, 0, 1800000, 1800000, NULL,      10000, 10000),
 	RPM_LDO(L5,	 0, 1, 0, 2950000, 2950000, NULL,      0, 0),
 	RPM_LDO(L6,	 0, 1, 0, 2950000, 2950000, NULL,      0, 0),
 	RPM_LDO(L7,	 1, 1, 0, 1850000, 2950000, NULL,      10000, 10000),
 	RPM_LDO(L8,	 0, 1, 0, 2800000, 3000000, NULL,      0, 0),
-	RPM_LDO(L9,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
+	RPM_LDO(L9,	 1, 1, 0, 3000000, 3000000, NULL,      0, 0),
 	RPM_LDO(L10,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
 	RPM_LDO(L11,	 0, 1, 0, 2850000, 2850000, NULL,      0, 0),
 	RPM_LDO(L12,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
@@ -539,7 +607,7 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_VS(LVS1,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS2,	 0, 1, 0,		    "8921_s1"),
 	RPM_VS(LVS3,	 0, 1, 0,		    "8921_s4"),
-	RPM_VS(LVS4,	 0, 1, 0,		    "8921_s4"),
+	RPM_VS(LVS4,	 1, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS5,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS6,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS7,	 0, 1, 0,		    "8921_s4"),

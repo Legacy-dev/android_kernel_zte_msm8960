@@ -34,6 +34,14 @@
 #define MSM_SENSOR_MCLK_16HZ 16000000
 #define MSM_SENSOR_MCLK_24HZ 24000000
 
+struct otp_struct {
+uint module_integrator_id;
+uint lens_id;
+uint rg_ratio;
+uint bg_ratio;
+uint user_data[5];
+uint lenc[62];
+};
 enum msm_sensor_reg_update {
 	/* Sensor egisters that need to be updated during initialization */
 	MSM_SENSOR_REG_INIT,
@@ -73,7 +81,7 @@ struct msm_sensor_exp_gain_info_t {
 struct msm_sensor_reg_t {
 	enum msm_camera_i2c_data_type default_data_type;
 	struct msm_camera_i2c_reg_conf *start_stream_conf;
-	uint8_t start_stream_conf_size;
+	uint16_t start_stream_conf_size;
 	struct msm_camera_i2c_reg_conf *stop_stream_conf;
 	uint8_t stop_stream_conf_size;
 	struct msm_camera_i2c_reg_conf *group_hold_on_conf;
@@ -85,6 +93,9 @@ struct msm_sensor_reg_t {
 	struct msm_camera_i2c_conf_array *mode_settings;
 	struct msm_sensor_output_info_t *output_settings;
 	uint8_t num_conf;
+	/*added by CDZ_CAM_ZTE for AF of yuv sensor)*/
+	struct msm_camera_i2c_reg_conf  *afinit_settings;
+	uint16_t afinit_size;
 };
 
 struct v4l2_subdev_info {
@@ -104,6 +115,8 @@ struct msm_sensor_v4l2_ctrl_info_t {
 	struct msm_camera_i2c_enum_conf_array *enum_cfg_settings;
 	int (*s_v4l2_ctrl) (struct msm_sensor_ctrl_t *,
 		struct msm_sensor_v4l2_ctrl_info_t *, int);
+	int (*s_v4l2_ctrl_e) (struct msm_sensor_ctrl_t *,
+		struct msm_sensor_v4l2_ctrl_info_t *, uint32_t);
 };
 
 struct msm_sensor_fn_t {
@@ -132,6 +145,9 @@ struct msm_sensor_fn_t {
 	int (*sensor_power_down)
 		(struct msm_sensor_ctrl_t *);
 	int (*sensor_power_up) (struct msm_sensor_ctrl_t *);
+	/*added by CDZ_CAM_ZTE for AF of yuv sensor)*/
+	int (*afinit_setting) (struct msm_sensor_ctrl_t *);
+	int (*af_trigger) (struct msm_sensor_ctrl_t *);
 	int32_t (*sensor_match_id)(struct msm_sensor_ctrl_t *s_ctrl);
 	int (*sensor_adjust_frame_lines)
 		(struct msm_sensor_ctrl_t *s_ctrl, uint16_t res);
@@ -197,12 +213,27 @@ int32_t msm_sensor_get_output_info(struct msm_sensor_ctrl_t *,
 		struct sensor_output_info_t *);
 int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			void __user *argp);
+/*deleted by CDZ_CAM_ZTE (ori from qual)*/
+#if 0
 int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl);
 int32_t msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl);
-
+#endif
 int32_t msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl);
+int32_t msm_ispcam_match_id(struct msm_sensor_ctrl_t *s_ctrl,
+	                                unsigned char cat, unsigned char byte);
+
+int32_t isp_cam_i2c_txdata(struct msm_sensor_ctrl_t *s_ctrl,unsigned short saddr,
+                                       unsigned char *txdata,
+                                       int length);
+int isp_cam_i2c_rxdata(struct msm_sensor_ctrl_t *s_ctrl,unsigned short saddr,
+                                   unsigned char *txdata,  
+                                   unsigned char *rxdata,
+                                   int length);
+/*deleted by CDZ_CAM_ZTE (ori from qual)*/
+#if 0
 int msm_sensor_i2c_probe(struct i2c_client *client,
 	const struct i2c_device_id *id);
+#endif
 int32_t msm_sensor_power(struct v4l2_subdev *sd, int on);
 
 int32_t msm_sensor_v4l2_s_ctrl(struct v4l2_subdev *sd,
@@ -226,7 +257,8 @@ int msm_sensor_write_res_settings
 
 int32_t msm_sensor_write_output_settings(struct msm_sensor_ctrl_t *s_ctrl,
 	uint16_t res);
-
+/*deleted by CDZ_CAM_ZTE (ori from qual)*/
+#if 0
 int32_t msm_sensor_adjust_frame_lines(struct msm_sensor_ctrl_t *s_ctrl,
 	uint16_t res);
 
@@ -235,7 +267,7 @@ int32_t msm_sensor_setting(struct msm_sensor_ctrl_t *s_ctrl,
 
 int32_t msm_sensor_setting1(struct msm_sensor_ctrl_t *s_ctrl,
 			int update_type, int res);
-
+#endif
 int msm_sensor_enable_debugfs(struct msm_sensor_ctrl_t *s_ctrl);
 
 long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,

@@ -181,6 +181,7 @@ struct msm_otg_platform_data {
 	u32 swfi_latency;
 	bool enable_dcd;
 	struct msm_bus_scale_pdata *bus_scale_table;
+	int *phy_init_seq_override;
 };
 
 /**
@@ -235,6 +236,7 @@ struct msm_otg {
 	int async_int;
 	unsigned cur_power;
 	struct delayed_work chg_work;
+	struct delayed_work invalid_chg_work;
 	enum usb_chg_state chg_state;
 	enum usb_chg_type chg_type;
 	u8 dcd_retries;

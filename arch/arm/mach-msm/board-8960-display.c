@@ -23,10 +23,17 @@
 #include <mach/gpiomux.h>
 #include <linux/ion.h>
 #include <mach/ion.h>
+#include <mach/camera.h>
+
+/*
+ * Backlight control in FTM 
+ */
+#include <mach/socinfo.h>
 
 #include "devices.h"
 #include "board-8960.h"
-
+int camera_is_working=0;
+int l2_should_enable=1;
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_PRIM_BUF_SIZE \
 		(roundup((1920 * 1200 * 4), 4096) * 3) /* 4 bpp x 3 pages */
@@ -49,7 +56,17 @@
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE + MSM_FB_EXT_BUF_SIZE, 4096)
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
+	/*#if defined(CONFIG_MACH_FROSTY )|| defined(CONFIG_MACH_DANA)|| defined(CONFIG_MACH_JARVIS)
+		#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((544 * 960 * 3 * 2), 4096)
+	#elif defined(CONFIG_MACH_ELDEN) ||defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_ILIAMNA)
+		#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((480 * 800 * 3 * 2), 4096)
+	#elif defined(CONFIG_MACH_GORDON)||defined(CONFIG_MACH_KISKA)
+		#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1280 * 736 * 3 * 2), 4096)
+	#else
+		#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1280 * 736 * 3 * 2), 4096)
+	#endif*/
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1920 * 1200 * 3 * 2), 4096)
+
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
 #endif  /* CONFIG_FB_MSM_OVERLAY0_WRITEBACK */
@@ -203,6 +220,9 @@ static void mipi_dsi_panel_pwm_cfg(void)
 
 static bool dsi_power_on;
 
+#define Use_our_panel
+
+#ifndef Use_our_panel
 /**
  * LiQUID panel on/off
  *
@@ -442,18 +462,287 @@ static int mipi_dsi_cdp_panel_power(int on)
 	}
 	return 0;
 }
+#endif
+#ifdef Use_our_panel
+static int mipi_dsi_panel_power_our(int on)
+{
+	static struct regulator *REG_L8, *REG_L23;
+	static int gpio_rst,gpio_blk;
+	int rc;
+	static struct regulator *reg_l2;
 
+	pr_info("%s: on=%d\n", __func__, on);
+
+	gpio_rst = PM8921_GPIO_PM_TO_SYS(43); /* Displays Enable (rst_n)*/
+	gpio_blk = 12; /* Backlight PWM */
+
+	if (!dsi_power_on) {
+		reg_l2 = regulator_get(&msm_mipi_dsi1_device.dev,
+				"dsi_vdda");
+		if (IS_ERR(reg_l2)) {
+			pr_err("could not get 8921_l2, rc = %ld\n",
+				PTR_ERR(reg_l2));
+			return -ENODEV;
+		}
+
+		rc = regulator_set_voltage(reg_l2, 1200000, 1200000);
+		if (rc) {
+			pr_err("set_voltage l2 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+		
+		REG_L23 = regulator_get(&msm_mipi_dsi1_device.dev,
+				"dsi_vddio");
+		if (IS_ERR(REG_L23)) {
+			pr_err("could not get 8921_l23(IOVDD), rc = %ld\n",
+				PTR_ERR(REG_L23));
+			return -ENODEV;
+		}
+
+
+		REG_L8 = regulator_get(&msm_mipi_dsi1_device.dev,
+				"dsi_vdc");
+		if (IS_ERR(REG_L8)) {
+			pr_err("could not get 8921_L8(AVDD), rc = %ld\n",
+				PTR_ERR(REG_L8));
+			return -ENODEV;
+		}
+
+		rc = regulator_set_voltage(REG_L23, 1800000, 1800000);
+		if (rc) {
+			pr_err("set_voltage l23 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+
+		rc = regulator_set_voltage(REG_L8, 2800000, 3000000);
+		if (rc) {
+			pr_err("set_voltage l8 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+		rc = gpio_request(gpio_rst, "disp_rst_n");
+		if (rc) {
+			pr_err("request gpio pm_43 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+
+		rc = gpio_request(gpio_blk, "disp_backlight_pwm");
+		if (rc) {
+			pr_err("request gpio 12 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+
+		dsi_power_on = true;
+	}
+
+	if (on) {
+#if defined CONFIG_MACH_FROSTY ||defined CONFIG_MACH_ILIAMNA
+		rc = regulator_set_optimum_mode(reg_l2, 100000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+#endif		
+		rc = regulator_set_optimum_mode(REG_L8, 100000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l8 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+		rc = regulator_set_optimum_mode(REG_L23, 100000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l23 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+if(l2_should_enable==1){
+		rc = regulator_enable(reg_l2);
+		if (rc) {
+			pr_err("enable l2 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+}
+		rc = regulator_enable(REG_L8);
+		if (rc) {
+			pr_err("enable l8 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+		rc = regulator_enable(REG_L23);
+		if (rc) {
+			pr_err("enable l23 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+#ifdef CONFIG_FB_MSM_MIPI_ZTE_SHARP_NT35516_QHD_PANEL
+		/* set reset pin before power enable */
+		msleep(12);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		usleep(20);
+		gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		usleep(40);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(20);
+#elif defined(CONFIG_FB_MSM_MIPI_ZTE_LEAD_NT35516_QHD_PANEL) 
+		/* set reset pin before power enable */
+		//gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		//msleep(30);
+		//gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		//msleep(40);
+		//gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		//msleep(50);  
+#elif defined(CONFIG_FB_MSM_MIPI_ZTE_YUSHUN_NT35516_LG_QHD_PANEL) 
+		/* set reset pin before power enable */
+		//gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		//msleep(30);
+		//gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		//msleep(40);
+		//gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		//msleep(50);  
+#elif defined(CONFIG_FB_MSM_MIPI_ZTE_NOVATEK_NT35510_WVGA_PANEL) 
+		/* set reset pin before power enable */
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(30);
+		gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		msleep(40);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(50);  
+#elif defined(CONFIG_FB_MSM_MIPI_LEAD_VIDEO_WVGA_PT_PANEL) 
+#if 0
+		/* set reset pin before power enable */
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(30);
+		gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		msleep(40);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(50);  
+#endif
+#elif defined(CONFIG_FB_MSM_MIPI_ZTE_LG4591_720HD_PANEL) 
+		/* set reset pin before power enable */
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(30);
+		gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		msleep(40);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(50);  
+#elif defined(CONFIG_FB_MSM_MIPI_ZTE_N9500_720HD_PANEL) 
+		/* set reset pin before power enable */
+#if 0
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(30);
+		gpio_set_value_cansleep(gpio_rst, 0); /* disp enable */
+		msleep(40);
+		gpio_set_value_cansleep(gpio_rst, 1); /* disp enable */
+		msleep(50);  
+#endif
+#else
+   #error I need an error here indicate unreset panel
+#endif
+
+/*
+ * Backlight control in FTM mode
+ */
+  if (1 == socinfo_get_ftm_flag()) {
+        	#if( defined(CONFIG_MACH_FROSTY )|| defined(CONFIG_MACH_DANA)|| defined(CONFIG_MACH_ELDEN) \
+	|| defined(CONFIG_MACH_JARVIS)||defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_GORDON)||defined(CONFIG_MACH_ILIAMNA)||defined(CONFIG_MACH_KISKA))
+	#else
+		    rc = gpio_direction_output(gpio_blk, 1);//pan
+		    #endif
+        } else {
+	#if( defined(CONFIG_MACH_FROSTY )|| defined(CONFIG_MACH_DANA)|| defined(CONFIG_MACH_ELDEN) \
+	|| defined(CONFIG_MACH_JARVIS)||defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_GORDON)||defined(CONFIG_MACH_ILIAMNA)|| defined(CONFIG_MACH_KISKA))
+	 #else
+		rc = gpio_direction_output(gpio_blk, 0);//pan
+	 #endif
+        }
+
+		if (rc) {
+			pr_err("%s: unable to set_direction for blk gpio [%d]\n",
+					__func__, gpio_blk);
+			return -ENODEV;
+		}
+
+		
+	} else {
+		gpio_set_value_cansleep(gpio_rst, 0);
+
+		rc = gpio_direction_output(gpio_blk, 0);
+		if (rc) {
+			pr_err("%s: unable to set_direction for blk gpio [%d]\n",
+					__func__, gpio_blk);
+			return -ENODEV;
+		}
+
+	
+		rc = regulator_disable(REG_L8);
+		if (rc) {
+			pr_err("disable reg_l8 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+
+		rc = regulator_disable(REG_L23);
+		if (rc) {
+			pr_err("disable reg_l23 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+#if 0
+#if 0
+		rc = regulator_set_optimum_mode(reg_l2, 9000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+
+#else
+		rc = regulator_disable(reg_l2);
+		if (rc) {
+			pr_err("disable reg_l2 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+		rc = regulator_set_optimum_mode(reg_l2, 100);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+#endif	
+#endif
+if(camera_is_working==0){
+		rc = regulator_disable(reg_l2);
+		if (rc) {
+			pr_err("disable reg_l2 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+		l2_should_enable=1;
+
+	}else{
+		rc = regulator_set_optimum_mode(reg_l2, 9000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+			return -EINVAL;
+		}
+		l2_should_enable=0;
+	}
+}
+
+	return 0;
+}
+#endif
 static int mipi_dsi_panel_power(int on)
 {
 	int ret;
 
 	pr_debug("%s: on=%d\n", __func__, on);
 
+#ifdef Use_our_panel
+	ret = mipi_dsi_panel_power_our(on);
+#endif
+
+#ifndef Use_our_panel
 	if (machine_is_msm8960_liquid())
 		ret = mipi_dsi_liquid_panel_power(on);
 	else
 		ret = mipi_dsi_cdp_panel_power(on);
-
+#endif
 	return ret;
 }
 
@@ -687,6 +976,7 @@ static struct msm_panel_common_pdata mdp_pdata = {
  * Set MDP clocks to high frequency to avoid DSI underflow
  * when using high resolution 1200x1920 WUXGA panels
  */
+
 static void set_mdp_clocks_for_wuxga(void)
 {
 	int i;
@@ -729,8 +1019,11 @@ static struct platform_device mipi_dsi_simulator_panel_device = {
 	.name = "mipi_simulator",
 	.id = 0,
 };
-
-#define LPM_CHANNEL0 0
+#if (defined(CONFIG_MACH_GORDON)||defined(CONFIG_MACH_KISKA))
+	#define LPM_CHANNEL0 12
+#else
+	#define LPM_CHANNEL0 0
+#endif
 static int toshiba_gpio[] = {LPM_CHANNEL0};
 
 static struct mipi_dsi_panel_platform_data toshiba_pdata = {
@@ -890,31 +1183,48 @@ static struct lcdc_platform_data dtv_pdata = {
 static int hdmi_enable_5v(int on)
 {
 	/* TBD: PM8921 regulator instead of 8901 */
-	static struct regulator *reg_8921_hdmi_mvs;	/* HDMI_5V */
+//	static struct regulator *reg_8921_hdmi_mvs;	/* HDMI_5V */
 	static int prev_on;
+	static int bFirst=true;
 	int rc;
+	
+	if(bFirst)
+		{
+//			if (!reg_8921_hdmi_mvs)
+//			reg_8921_hdmi_mvs = regulator_get(&hdmi_msm_device.dev,"hdmi_mvs");
+			rc = gpio_request(1, "HDMI_CTCP");
+			rc = gpio_request(47, "HDMI_LSOE");
+			bFirst=false;
+		}
 
 	if (on == prev_on)
 		return 0;
 
-	if (!reg_8921_hdmi_mvs)
-		reg_8921_hdmi_mvs = regulator_get(&hdmi_msm_device.dev,
-			"hdmi_mvs");
+
 
 	if (on) {
-		rc = regulator_enable(reg_8921_hdmi_mvs);
-		if (rc) {
-			pr_err("'%s' regulator enable failed, rc=%d\n",
-				"8921_hdmi_mvs", rc);
-			return rc;
-		}
-		pr_debug("%s(on): success\n", __func__);
+		rc = gpio_direction_output(1, 1);
+		rc = gpio_direction_output(47, 1);
+
+//		rc = regulator_enable(reg_8921_hdmi_mvs);
+//		if (rc) {
+//			pr_err("'%s' regulator enable failed, rc=%d\n",
+//				"8921_hdmi_mvs", rc);
+//			return rc;
+//		}
+//		pr_debug("%s(on): success\n", __func__);
 	} else {
-		rc = regulator_disable(reg_8921_hdmi_mvs);
-		if (rc)
-			pr_warning("'%s' regulator disable failed, rc=%d\n",
-				"8921_hdmi_mvs", rc);
-		pr_debug("%s(off): success\n", __func__);
+		rc = gpio_direction_output(47, 0);
+		rc = gpio_direction_output(1, 0);
+		
+//		gpio_free(1);
+//		gpio_free(47);
+
+//		rc = regulator_disable(reg_8921_hdmi_mvs);
+//		if (rc)
+//			pr_warning("'%s' regulator disable failed, rc=%d\n",
+//				"8921_hdmi_mvs", rc);
+//		pr_debug("%s(off): success\n", __func__);
 	}
 
 	prev_on = on;
@@ -926,11 +1236,11 @@ static int hdmi_core_power(int on, int show)
 {
 	static struct regulator *reg_8921_l23, *reg_8921_s4;
 	static int prev_on;
+	static int bFirst=true;
 	int rc;
 
-	if (on == prev_on)
-		return 0;
-
+	if(bFirst)
+	{
 	/* TBD: PM8921 regulator instead of 8901 */
 	if (!reg_8921_l23) {
 		reg_8921_l23 = regulator_get(&hdmi_msm_device.dev, "hdmi_avdd");
@@ -981,7 +1291,7 @@ static int hdmi_core_power(int on, int show)
 		if (rc) {
 			pr_err("'%s'(%d) gpio_request failed, rc=%d\n",
 				"HDMI_DDC_CLK", 100, rc);
-			goto error1;
+//			goto error1;
 		}
 		rc = gpio_request(101, "HDMI_DDC_DATA");
 		if (rc) {
@@ -995,12 +1305,22 @@ static int hdmi_core_power(int on, int show)
 				"HDMI_HPD", 102, rc);
 			goto error3;
 		}
+		bFirst=false;	
+	}
+
+	if (on == prev_on)
+		return 0;
+
+
+
+
 		pr_debug("%s(on): success\n", __func__);
 	} else {
-		gpio_free(100);
-		gpio_free(101);
-		gpio_free(102);
+//		gpio_free(100);
+//		gpio_free(101);
+//		gpio_free(102);
 
+/*
 		rc = regulator_disable(reg_8921_l23);
 		if (rc) {
 			pr_err("disable reg_8921_l23 failed, rc=%d\n", rc);
@@ -1016,6 +1336,7 @@ static int hdmi_core_power(int on, int show)
 			pr_err("set_optimum_mode l23 failed, rc=%d\n", rc);
 			return -EINVAL;
 		}
+*/
 		pr_debug("%s(off): success\n", __func__);
 	}
 
@@ -1027,9 +1348,9 @@ error3:
 	gpio_free(101);
 error2:
 	gpio_free(100);
-error1:
-	regulator_disable(reg_8921_l23);
-	regulator_disable(reg_8921_s4);
+//error1:
+//	regulator_disable(reg_8921_l23);
+//	regulator_disable(reg_8921_s4);
 	return rc;
 }
 

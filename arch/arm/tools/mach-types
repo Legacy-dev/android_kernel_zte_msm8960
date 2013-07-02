@@ -1136,3 +1136,17 @@ msm7627a_evb		MACH_MSM7627A_EVB	MSM7627A_EVB		3934
 apq8064_cdp		MACH_APQ8064_CDP	APQ8064_CDP		3948
 apq8064_mtp		MACH_APQ8064_MTP	APQ8064_MTP		3949
 apq8064_liquid		MACH_APQ8064_LIQUID	APQ8064_LIQUID		3951
+
+# ZTE Board Num by ZTE_BOOT_JIA_20120620 jia.jia
+adams           MACH_ADAMS          ADAMS           6001
+baker           MACH_BAKER          BAKER           6002
+crater          MACH_CRATER         CRATER          6003
+dana            MACH_DANA           DANA            6004
+elden           MACH_ELDEN          ELDEN           6005
+frosty          MACH_FROSTY         FROSTY          6006
+gordon          MACH_GORDON         GORDON          6007
+hayes           MACH_HAYES          HAYES           6008
+iliamna         MACH_ILIAMNA        ILIAMNA         6009
+jarvis          MACH_JARVIS         JARVIS          6010
+kiska           MACH_KISKA          KISKA           6011
+

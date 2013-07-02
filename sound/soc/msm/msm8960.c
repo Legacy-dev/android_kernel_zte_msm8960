@@ -28,7 +28,11 @@
 #include <linux/mfd/wcd9310/core.h>
 #include "msm-pcm-routing.h"
 #include "../codecs/wcd9310.h"
+#include <sound/zte_audio_def.h>
 
+#ifdef CONFIG_MACH_GORDON
+#include "../codecs/wm2000.h"
+#endif
 /* 8960 machine driver */
 
 #define PM8921_GPIO_BASE		NR_GPIO_IRQS
@@ -59,11 +63,22 @@
 #define TABLA_MBHC_DEF_BUTTONS 8
 #define TABLA_MBHC_DEF_RLOADS 5
 
+#if 0
 #define JACK_DETECT_GPIO 38
 #define JACK_DETECT_INT PM8921_GPIO_IRQ(PM8921_IRQ_BASE, JACK_DETECT_GPIO)
+#else
+// chenjun:ZTE
+#define JACK_DETECT_GPIO 50
+#define JACK_DETECT_INT MSM_GPIO_TO_INT(JACK_DETECT_GPIO)
+#define GPIO_DETECT_USED 1
+#endif
 
 static u32 top_spk_pamp_gpio  = PM8921_GPIO_PM_TO_SYS(18);
 static u32 bottom_spk_pamp_gpio = PM8921_GPIO_PM_TO_SYS(19);
+
+#if defined(CONFIG_USE_SPK_BOOST)
+static u32 bottom_spk_boost_gpio = PM8921_GPIO_PM_TO_SYS(16);//songyy enable 5v boost 20120413
+#endif
 static int msm8960_spk_control;
 static int msm8960_ext_bottom_spk_pamp;
 static int msm8960_ext_top_spk_pamp;
@@ -81,7 +96,7 @@ static int msm8960_headset_gpios_configured;
 static struct snd_soc_jack hs_jack;
 static struct snd_soc_jack button_jack;
 
-static bool hs_detect_use_gpio;
+static bool hs_detect_use_gpio = 1; // chenjun:orig:0
 module_param(hs_detect_use_gpio, bool, 0444);
 MODULE_PARM_DESC(hs_detect_use_gpio, "Use GPIO for headset detection");
 
@@ -102,7 +117,12 @@ static struct tabla_mbhc_config mbhc_cfg = {
 	.mclk_rate = TABLA_EXT_CLK_RATE,
 	.gpio = 0,
 	.gpio_irq = 0,
+#if 0
 	.gpio_level_insert = 1,
+#else
+// chenjun:ZTE
+	.gpio_level_insert = 0,
+#endif
 };
 
 static struct mutex cdc_mclk_mutex;
@@ -162,6 +182,98 @@ static void msm8960_enable_ext_spk_amp_gpio(u32 spk_amp_gpio)
 	}
 }
 
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if defined(CONFIG_USE_YD_AMP)
+static void msm8960_spk_en1_mode(u32 spk_en1_gpio, int mode)
+{
+	int ret = 0;
+
+	struct pm_gpio param = {
+		.direction      = PM_GPIO_DIR_OUT,
+		.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
+		.output_value   = 1,
+		.pull      = PM_GPIO_PULL_NO,
+		.vin_sel	= PM_GPIO_VIN_S4,
+		.out_strength   = PM_GPIO_STRENGTH_MED,
+		.function       = PM_GPIO_FUNC_NORMAL,
+	};
+
+	pr_err("chenjun:%s:mode(%d)\n", __func__, mode);
+
+	if (spk_en1_gpio == top_spk_pamp_gpio) {
+
+		ret = gpio_request(top_spk_pamp_gpio, "SPK_EN1");
+		if (ret) {
+			pr_err("%s: Error requesting SPK EN1 GPIO %u\n",
+				__func__, top_spk_pamp_gpio);
+			return;
+		}
+		ret = pm8xxx_gpio_config(top_spk_pamp_gpio, &param);
+		if (ret)
+			pr_err("%s: Failed to configure SPK EN1"
+				" gpio %u\n", __func__, top_spk_pamp_gpio);
+		else {
+			if (mode)
+			{
+			    pr_info("%s: enable SPK EN1 gpio\n", __func__);
+			    gpio_direction_output(top_spk_pamp_gpio, 1);
+			}
+			else
+			{
+			    pr_info("%s: disable SPK EN1 gpio\n", __func__);
+			    gpio_direction_output(top_spk_pamp_gpio, 0);
+			}
+		}
+
+	} else {
+		pr_err("%s: ERROR : Invalid External SPK EN1 GPIO."
+			" gpio = %u\n", __func__, top_spk_pamp_gpio);
+		return;
+	}
+}
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+
+#if defined(CONFIG_USE_SPK_BOOST)
+static void msm8960_enable_ext_spk_boost_gpio(u32 spk_boost_gpio)//songyy enable 5v boost 20120413
+{
+	int ret = 0;
+
+	struct pm_gpio param = {
+		.direction      = PM_GPIO_DIR_OUT,
+		.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
+		.output_value   = 1,
+		.pull      = PM_GPIO_PULL_NO,
+		.vin_sel	= PM_GPIO_VIN_S4,
+		.out_strength   = PM_GPIO_STRENGTH_MED,
+		.
+			function       = PM_GPIO_FUNC_NORMAL,
+	};
+
+	if (spk_boost_gpio == bottom_spk_boost_gpio) {
+
+		ret = gpio_request(bottom_spk_boost_gpio, "BOTTOM_SPK_BOOST");
+		if (ret) {
+			pr_err("%s: Error requesting BOTTOM SPK BOOST GPIO %u\n",
+				__func__, bottom_spk_boost_gpio);
+			return;
+		}
+		ret = pm8xxx_gpio_config(bottom_spk_boost_gpio, &param);
+		if (ret)
+			pr_err("%s: Failed to configure Bottom Spk boost"
+				" gpio %u\n", __func__, bottom_spk_boost_gpio);
+		else {
+			pr_debug("%s: enable Bottom spkr boost gpio\n", __func__);
+			gpio_direction_output(bottom_spk_boost_gpio, 1);
+		}
+
+	} else {
+		pr_err("%s: ERROR : Invalid External Speaker boost GPIO."
+			" gpio = %u\n", __func__, spk_boost_gpio);
+		return;
+	}
+}
+#endif
 static void msm8960_ext_spk_power_amp_on(u32 spk)
 {
 	if (spk & (BOTTOM_SPK_AMP_POS | BOTTOM_SPK_AMP_NEG)) {
@@ -180,6 +292,14 @@ static void msm8960_ext_spk_power_amp_on(u32 spk)
 			(msm8960_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_NEG)) {
 
 			msm8960_enable_ext_spk_amp_gpio(bottom_spk_pamp_gpio);
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if defined(CONFIG_USE_YD_AMP)
+			msm8960_spk_en1_mode(top_spk_pamp_gpio, 0);
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
+			#if defined(CONFIG_USE_SPK_BOOST)
+			msm8960_enable_ext_spk_boost_gpio(bottom_spk_boost_gpio);//songyy enable 5v boost 20120413
+			#endif
 			pr_debug("%s: slepping 4 ms after turning on external "
 				" Bottom Speaker Ampl\n", __func__);
 			usleep_range(4000, 4000);
@@ -221,7 +341,17 @@ static void msm8960_ext_spk_power_amp_off(u32 spk)
 			return;
 
 		gpio_direction_output(bottom_spk_pamp_gpio, 0);
+		#if defined(CONFIG_USE_SPK_BOOST)
+		gpio_direction_output(bottom_spk_boost_gpio, 0);//songyy enable 5v boost 20120413
+		gpio_free(bottom_spk_boost_gpio);//songyy enable 5v boost 20120413
+		#endif
 		gpio_free(bottom_spk_pamp_gpio);
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, start */
+#if defined(CONFIG_USE_YD_AMP)
+		gpio_direction_output(top_spk_pamp_gpio, 0);
+		gpio_free(top_spk_pamp_gpio);
+#endif
+/* ZTE_Audio_CJ_120530, chenjun, 2012-05-30, end */
 		msm8960_ext_bottom_spk_pamp = 0;
 
 		pr_debug("%s: sleeping 4 ms after turning off external Bottom"
@@ -396,9 +526,13 @@ static const struct snd_soc_dapm_widget msm8960_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Ext Spk Bottom Pos", msm8960_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Bottom Neg", msm8960_spkramp_event),
 
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, start */
+#if 1
 	SND_SOC_DAPM_SPK("Ext Spk Top Pos", msm8960_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top Neg", msm8960_spkramp_event),
-
+#endif
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, end */
+	
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic1", NULL),
@@ -420,12 +554,19 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 	{"LDO_H", NULL, "MCLK"},
 
 	/* Speaker path */
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, start */
+#if 1
 	{"Ext Spk Bottom Pos", NULL, "LINEOUT1"},
 	{"Ext Spk Bottom Neg", NULL, "LINEOUT3"},
 
 	{"Ext Spk Top Pos", NULL, "LINEOUT2"},
 	{"Ext Spk Top Neg", NULL, "LINEOUT4"},
-
+#else
+	{"Ext Spk Bottom Pos", NULL, "LINEOUT1"},
+	{"Ext Spk Bottom Neg", NULL, "LINEOUT2"},
+#endif
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, end */
+	
 	/* Microphone path */
 	{"AMIC1", NULL, "MIC BIAS1 Internal1"},
 	{"MIC BIAS1 Internal1", NULL, "Handset Mic"},
@@ -497,6 +638,12 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 	 */
 	{"DMIC6", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic6"},
+
+#ifdef CONFIG_MACH_GORDON
+	/* WM2000 is connected to earpiece out */
+	{ "WM2000 LINN", NULL, "EAR" },
+	{ "WM2000 LINP", NULL, "EAR" },
+#endif
 };
 
 static const char *spk_function[] = {"Off", "On"};
@@ -631,11 +778,11 @@ static void *def_tabla_mbhc_cal(void)
 	S(mic_current, TABLA_PID_MIC_5_UA);
 	S(hph_current, TABLA_PID_MIC_5_UA);
 	S(t_mic_pid, 100);
-	S(t_ins_complete, 250);
+	S(t_ins_complete, 1000); // chenjun:orig:250
 	S(t_ins_retry, 200);
 #undef S
 #define S(X, Y) ((TABLA_MBHC_CAL_PLUG_TYPE_PTR(tabla_cal)->X) = (Y))
-	S(v_no_mic, 30);
+	S(v_no_mic, 686); // chenjun:orig:30:to 686
 	S(v_hs_max, 2400);
 #undef S
 #define S(X, Y) ((TABLA_MBHC_CAL_BTN_DET_PTR(tabla_cal)->X) = (Y))
@@ -687,6 +834,8 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	int err;
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
+#if 0
+// chenjun
 	struct pm_gpio jack_gpio_cfg = {
 		.direction = PM_GPIO_DIR_IN,
 		.pull = PM_GPIO_PULL_UP_1P5,
@@ -694,7 +843,7 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		.vin_sel = 2,
 		.inv_int_pol = 0,
 	};
-
+#endif
 	pr_debug("%s()\n", __func__);
 
 	if (machine_is_msm8960_liquid()) {
@@ -709,6 +858,10 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	if (err < 0)
 		return err;
 
+#ifdef CONFIG_MACH_GORDON
+	wm2000_add_controls(codec);
+#endif
+
 	snd_soc_dapm_new_controls(dapm, msm8960_dapm_widgets,
 				ARRAY_SIZE(msm8960_dapm_widgets));
 
@@ -717,8 +870,12 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Neg");
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, start */
+#if 1
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Neg");
+#endif
+/* ZTE_Audio_CJ_111126, chenjun, 2011-11-26, end */
 
 	snd_soc_dapm_sync(dapm);
 
@@ -738,6 +895,7 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		return err;
 	}
 
+#if 0
 	if (hs_detect_use_gpio) {
 		mbhc_cfg.gpio = PM8921_GPIO_PM_TO_SYS(JACK_DETECT_GPIO);
 		mbhc_cfg.gpio_irq = JACK_DETECT_INT;
@@ -751,6 +909,14 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 			return err;
 		}
 	}
+#else
+// chenjun
+	if (hs_detect_use_gpio) {
+		mbhc_cfg.gpio = JACK_DETECT_GPIO;
+		mbhc_cfg.gpio_irq = JACK_DETECT_INT;
+	}
+#endif
+
 
 	mbhc_cfg.read_fw_bin = hs_detect_use_firmware;
 
@@ -1323,16 +1489,49 @@ static struct snd_soc_card snd_soc_tabla1x_card_msm8960 = {
 		.name		= "msm8960-tabla1x-snd-card",
 		.dai_link	= msm8960_tabla1x_dai,
 		.num_links	= ARRAY_SIZE(msm8960_tabla1x_dai),
+#ifdef CONFIG_MACH_GORDON
+		.suspend_pre = wm2000_suspend,
+		.resume_post = wm2000_resume,
+#endif
 };
 
 static struct snd_soc_card snd_soc_card_msm8960 = {
 		.name		= "msm8960-snd-card",
 		.dai_link	= msm8960_dai,
 		.num_links	= ARRAY_SIZE(msm8960_dai),
+#ifdef CONFIG_MACH_GORDON
+		.suspend_pre = wm2000_suspend,
+		.resume_post = wm2000_resume,
+#endif
 };
 
 static struct platform_device *msm8960_snd_device;
 static struct platform_device *msm8960_snd_tabla1x_device;
+
+void US_EURO_Switch(int enable)
+{
+
+pr_err("%s:enable(%d)\n", __func__, enable);
+
+    if (enable)
+    {
+#if 0
+        gpio_direction_output(PM8921_GPIO_PM_TO_SYS(35), 1);
+#else
+        gpio_set_value_cansleep(PM8921_GPIO_PM_TO_SYS(35), 1);
+#endif
+        pr_err("%s:enable\n", __func__);
+    }
+    else
+    {
+#if 0
+        gpio_direction_output(PM8921_GPIO_PM_TO_SYS(35), 0);
+#else
+        gpio_set_value_cansleep(PM8921_GPIO_PM_TO_SYS(35), 0);
+#endif
+        pr_err("%s:disable\n", __func__);
+    }
+}
 
 static int msm8960_configure_headset_mic_gpios(void)
 {
@@ -1373,7 +1572,9 @@ static int msm8960_configure_headset_mic_gpios(void)
 		pr_err("%s: Failed to configure gpio %d\n", __func__,
 			PM8921_GPIO_PM_TO_SYS(35));
 	else
+	{
 		gpio_direction_output(PM8921_GPIO_PM_TO_SYS(35), 0);
+	}
 
 	return 0;
 }

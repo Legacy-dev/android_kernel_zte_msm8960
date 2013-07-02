@@ -2384,10 +2384,9 @@ source "drivers/video/msm/Kconfig"
 
 source "drivers/video/omap/Kconfig"
 source "drivers/video/omap2/Kconfig"
-
+source "drivers/video/mhl/Kconfig"
 source "drivers/video/backlight/Kconfig"
 source "drivers/video/display/Kconfig"
-
 if VT
 	source "drivers/video/console/Kconfig"
 endif

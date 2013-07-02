@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+2012-04-05 zhangjinhuan add 8660A macro for deal with mode ftm diag command fail ZTE-RIL-ZJH-120405
+*/
+
+
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -102,6 +107,7 @@ int chk_config_get_id(void)
 		return APQ8060_TOOLS_ID;
 	case AO8960_MACHINE_ID:
 	case MSM8260A_MACHINE_ID:
+	case MSM8660A_MACHINE_ID://ZTE-RIL-ZJH-120405
 		return AO8960_TOOLS_ID;
 	case APQ8064_MACHINE_ID:
 		return APQ8064_TOOLS_ID;
@@ -110,8 +116,11 @@ int chk_config_get_id(void)
 	case MSM8974_MACHINE_ID:
 		return MSM8974_TOOLS_ID;
 	default:
+		{
+         printk(KERN_ERR "zjh,chk_config_get_id,socinfo:%d",socinfo_get_id());
 		return 0;
-	}
+	    }
+    }
 }
 
 /*
@@ -132,8 +141,10 @@ int chk_apps_only(void)
 	case MSM8974_MACHINE_ID:
 	case MDM9615_MACHINE_ID:
 	case MSM8260A_MACHINE_ID:
+	case MSM8660A_MACHINE_ID: //ZTE-RIL-ZJH-120405
 		return 1;
 	default:
+        printk(KERN_ERR "zjh,chk_apps_only,FAIL....%d",socinfo_get_id());
 		return 0;
 	}
 }
@@ -148,7 +159,10 @@ int chk_apps_master(void)
 	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm9615())
 		return 1;
 	else
+		{
+        printk(KERN_ERR "zjh,chk_apps_master,fail");
 		return 0;
+        }
 }
 
 void __diag_smd_send_req(void)
@@ -660,6 +674,7 @@ void diag_send_data(struct diag_master_table entry, unsigned char *buf,
 						RESET_ID)
 						return;
 				smd_write(driver->ch, buf, len);
+
 			} else if (entry.client_id == QDSP_PROC &&
 							 driver->chqdsp) {
 				smd_write(driver->chqdsp, buf, len);
@@ -1043,6 +1058,7 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 				 subsys_id && entry.cmd_code_lo <=
 							 subsys_cmd_code &&
 				  entry.cmd_code_hi >= subsys_cmd_code) {
+
 				diag_send_data(entry, buf, len, data_type);
 				packet_type = 0;
 			} else if (entry.cmd_code == 255
@@ -1063,6 +1079,7 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 						 cmd_code &&
 						 entry.
 						cmd_code_hi >= cmd_code) {
+
 					diag_send_data(entry, buf, len,
 								 data_type);
 					packet_type = 0;

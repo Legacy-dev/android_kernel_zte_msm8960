@@ -531,6 +531,57 @@ static struct sys_device soc_sys_device = {
 	.cls = &soc_sysdev_class,
 };
 
+/*
+ * ZTE_PLATFORM
+ */
+#ifdef ZTE_BOOT_MODE
+static int ftm_flag = 0;
+
+void socinfo_set_ftm_flag(int val)
+{
+	ftm_flag = val;
+}
+
+int socinfo_get_ftm_flag(void)
+{
+    return ftm_flag;
+}
+#endif
+
+/*
+ * ZTE_PLATFORM
+ */
+#if 1
+static const char *socinfo_zte_hw_ver = NULL;
+
+static ssize_t socinfo_show_zte_hw_ver(struct sys_device *dev,
+                                               struct sysdev_attribute *attr,
+                                               char *buf)
+{
+    return snprintf(buf, PAGE_SIZE, "%s\n", socinfo_zte_hw_ver);
+}
+
+/*
+ * Defined for op in
+ * '/sys/devices/system/soc/soc0/zte_hw_ver'
+ */
+static struct sysdev_attribute socinfo_zte_hw_ver_files[] = {
+    _SYSDEV_ATTR(zte_hw_ver, 0444, socinfo_show_zte_hw_ver, NULL),
+};
+
+void socinfo_sync_sysfs_zte_hw_ver(const char *hw_ver)
+{
+    if ((hw_ver == NULL) || (PAGE_SIZE < (strlen(hw_ver) + 1))) {
+        pr_err("%s: invalid length\n", __func__);
+        socinfo_zte_hw_ver = "INVALID";
+        return;
+    }
+
+    socinfo_zte_hw_ver = hw_ver;
+}
+EXPORT_SYMBOL(socinfo_sync_sysfs_zte_hw_ver);
+#endif
+
 static int __init socinfo_create_files(struct sys_device *dev,
 					struct sysdev_attribute files[],
 					int size)
@@ -568,6 +619,19 @@ static int __init socinfo_init_sysdev(void)
 		       __func__, err);
 		return err;
 	}
+
+/*
+ * ZTE_PLATFORM
+ */
+#if 1
+    err = socinfo_create_files(&soc_sys_device, socinfo_zte_hw_ver_files,
+                               ARRAY_SIZE(socinfo_zte_hw_ver_files));
+    if (err) {
+        pr_err("%s: socinfo_create_files(socinfo_zte_board_id_files)=%d\n", __func__, err);
+        return err;
+    }
+#endif
+
 	socinfo_create_files(&soc_sys_device, socinfo_v1_files,
 				ARRAY_SIZE(socinfo_v1_files));
 	if (socinfo->v1.format < 2)
@@ -735,8 +799,25 @@ const int get_core_count(void)
 
 const int read_msm_cpu_type(void)
 {
+#if 0 
 	if (machine_is_msm8960_sim() || machine_is_msm8960_rumi3())
 		return MSM_CPU_8960;
+#else
+	if (machine_is_msm8960_sim()
+            || machine_is_msm8960_rumi3()
+            || machine_is_adams()
+            || machine_is_baker()
+            || machine_is_crater()
+            || machine_is_dana()
+            || machine_is_elden()
+            || machine_is_frosty()
+            || machine_is_gordon()
+            || machine_is_hayes()
+            || machine_is_iliamna()
+            || machine_is_jarvis()
+            || machine_is_kiska())
+		return MSM_CPU_8960;
+#endif
 
 	if (socinfo_get_msm_cpu() != MSM_CPU_UNKNOWN)
 		return socinfo_get_msm_cpu();

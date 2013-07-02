@@ -43,7 +43,16 @@
 #include <linux/rculist.h>
 #include <mach/msm_rtb.h>
 #include <asm/uaccess.h>
+#ifndef CONFIG_ZTE_PLATFORM
+#define CONFIG_ZTE_PLATFORM 1
+#endif
+#ifdef CONFIG_ZTE_PLATFORM
+#include <linux/rtc.h>
 
+/*20100726 ZTE_LYJ_PRINTK_001*/
+static int printk_proc_info = 1;
+module_param_named(printk_proc_info, printk_proc_info, int, S_IRUGO | S_IWUSR);
+#endif
 /*
  * Architectures can override it:
  */
@@ -706,8 +715,14 @@ static void call_console_drivers(unsigned start, unsigned end)
 	_call_console_drivers(start_print, end, msg_level);
 }
 
+extern char *zte_log_buf;
 static void emit_log_char(char c)
 {
+	if (zte_log_buf) {
+		log_buf = zte_log_buf;
+		zte_log_buf = NULL;
+	}
+
 	LOG_BUF(log_end) = c;
 	log_end++;
 	if (log_end - log_start > log_buf_len)
@@ -780,6 +795,7 @@ static int have_callable_console(void)
  * See the vsnprintf() documentation for format string extensions over C99.
  */
 
+extern int noprintk;
 asmlinkage int printk(const char *fmt, ...)
 {
 	va_list args;
@@ -798,6 +814,9 @@ asmlinkage int printk(const char *fmt, ...)
 		return r;
 	}
 #endif
+	if (noprintk == 1)  //tcd
+		return 0;
+
 	va_start(args, fmt);
 	r = vprintk(fmt, args);
 	va_end(args);
@@ -973,19 +992,51 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 				/* Add the current time stamp */
 				char tbuf[50], *tp;
 				unsigned tlen;
+#ifndef CONFIG_ZTE_PLATFORM
 				unsigned long long t;
 				unsigned long nanosec_rem;
+#else
+				struct timespec ts;
+				struct rtc_time tm;
 
+				ts = current_kernel_time();
+				rtc_time_to_tm(ts.tv_sec, &tm);
+				tlen = sprintf(tbuf, "[%02d-%02d %02d:%02d:%02d.%03d] ",	/* chenchongbao.20111218 chang %06d => %03d */
+					tm.tm_mon + 1, tm.tm_mday,
+					tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(ts.tv_nsec / NSEC_PER_MSEC));	/* chenchongbao.20111228 NSEC_PER_USEC=> NSEC_PER_MSEC*/
+#endif
+
+#ifndef CONFIG_ZTE_PLATFORM
 				t = cpu_clock(printk_cpu);
 				nanosec_rem = do_div(t, 1000000000);
 				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
 						(unsigned long) t,
 						nanosec_rem / 1000);
-
+#endif
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
 				printed_len += tlen;
 			}
+#ifdef CONFIG_ZTE_PLATFORM
+/*20100726 ZTE_LYJ_PRINTK_001 start */
+			if (printk_proc_info) {
+				if (!in_interrupt()){
+				    /* Follow the token with the time */
+				    char proc_info_buf[50], *tp;
+				    unsigned info_len;
+
+				    info_len = sprintf(proc_info_buf, "[%u][%d: %s]",
+						smp_processor_id(),
+						current->pid,
+						current->comm);
+
+				    for (tp = proc_info_buf; tp < proc_info_buf + info_len; tp++)
+					    emit_log_char(*tp);
+				    printed_len += info_len;
+				}
+			}
+/*20100726 ZTE_LYJ_PRINTK_001 end */
+#endif
 
 			if (!*p)
 				break;
@@ -1148,7 +1199,7 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
-int console_suspend_enabled = 1;
+int console_suspend_enabled = 0;
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)
@@ -1660,6 +1711,7 @@ static int __init printk_late_init(void)
 		}
 	}
 	hotcpu_notifier(console_cpu_notify, 0);
+	printk("zte log address __log_buf: 0x%x\n", (unsigned int)__log_buf);
 	return 0;
 }
 late_initcall(printk_late_init);

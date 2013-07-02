@@ -38,7 +38,7 @@
 
 static struct workqueue_struct *gsmd_wq;
 
-#define SMD_N_PORTS	2
+
 #define CH_OPENED	0
 #define CH_READY	1
 struct smd_port_info {
@@ -47,14 +47,19 @@ struct smd_port_info {
 	unsigned long		flags;
 };
 
-struct smd_port_info smd_pi[SMD_N_PORTS] = {
+struct smd_port_info smd_pi[] = {
 	{
 		.name = "DS",
+	},
+	{
+		.name = "DATA1",
 	},
 	{
 		.name = "UNUSED",
 	},
 };
+
+#define SMD_N_PORTS	ARRAY_SIZE(smd_pi)
 
 struct gsmd_port {
 	unsigned		port_num;
@@ -611,6 +616,12 @@ static void gsmd_notify_modem(void *gptr, u8 portno, int ctrl_bits)
 
 	if (temp == port->cbits_to_modem)
 		return;
+
+	//wangzy,modify for slateDC AT command test
+	if((temp==0) && !(port->cbits_to_modem&TIOCM_RTS) ){		
+		temp=TIOCM_RTS|TIOCM_DTR;
+		}
+	//end
 
 	port->cbits_to_modem = temp;
 

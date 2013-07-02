@@ -26,6 +26,7 @@
 #include <linux/suspend.h>
 #include <linux/tick.h>
 #include <linux/uaccess.h>
+#include <linux/seq_file.h>
 #include <linux/wakelock.h>
 #include <linux/delay.h>
 #include <mach/msm_iomap.h>
@@ -38,6 +39,8 @@
 #ifdef CONFIG_VFP
 #include <asm/vfp.h>
 #endif
+
+#include <mach/msm_rtb.h>
 
 #include "acpuclock.h"
 #include "clock.h"
@@ -63,13 +66,15 @@ enum {
 	MSM_PM_DEBUG_SUSPEND_LIMITS = BIT(2),
 	MSM_PM_DEBUG_CLOCK = BIT(3),
 	MSM_PM_DEBUG_RESET_VECTOR = BIT(4),
+	MSM_PM_DEBUG_ZTE_LOGS = BIT(5),//zte's customize log,default not open
 	MSM_PM_DEBUG_IDLE_CLK = BIT(5),
 	MSM_PM_DEBUG_IDLE = BIT(6),
 	MSM_PM_DEBUG_IDLE_LIMITS = BIT(7),
 	MSM_PM_DEBUG_HOTPLUG = BIT(8),
 };
 
-static int msm_pm_debug_mask = 1;
+//static int msm_pm_debug_mask = 1;
+int msm_pm_debug_mask =0;//MSM_PM_DEBUG_HOTPLUG|MSM_PM_DEBUG_IDLE_CLK|MSM_PM_DEBUG_RESET_VECTOR| MSM_PM_DEBUG_CLOCK | MSM_PM_DEBUG_SUSPEND | MSM_PM_DEBUG_POWER_COLLAPSE | MSM_PM_DEBUG_SUSPEND_LIMITS;
 module_param_named(
 	debug_mask, msm_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
@@ -649,6 +654,92 @@ static inline bool msm_pm_l2x0_power_collapse(void)
 }
 #endif
 
+#ifndef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME 
+#define CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME 1
+#endif
+
+#ifdef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME
+
+#define MSM_PM_DPRINTK(mask, level, message, ...) \
+	do { \
+		if ((mask) & msm_pm_debug_mask) \
+			printk(level message, ## __VA_ARGS__); \
+	} while (0)
+
+
+long lateresume_2_earlysuspend_time_s = 0;		//LHX_PM_20110411_01 time to record how long it takes to earlysuspend after last resume. namely,to record how long the LCD keeps on.
+void zte_update_lateresume_2_earlysuspend_time(bool resume_or_earlysuspend)	// LHX_PM_20110411_01 resume_or_earlysuspend? lateresume : earlysuspend
+{
+		
+	if (!((MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE) & msm_pm_debug_mask) )
+		return ;
+	if(resume_or_earlysuspend)//lateresume,need to record when the lcd is turned on
+	{
+		lateresume_2_earlysuspend_time_s = current_kernel_time().tv_sec;
+	}
+	else	//earlysuspend,need to record when the lcd is turned off
+	{
+		lateresume_2_earlysuspend_time_s = current_kernel_time().tv_sec - lateresume_2_earlysuspend_time_s;	//record how long the lcd keeps on
+	}
+}
+
+
+/*BEGIN LHX_PM_20110324_01 add code to record how long the APP sleeps or keeps awake*/
+struct timespec time_updated_when_sleep_awake;
+void record_sleep_awake_time(bool record_sleep_awake)
+{
+	//record_sleep_awake?: true?record awake time, else record  sleep time
+	struct timespec ts;
+	int time_updated_when_sleep_awake_s;
+	int time_updated_when_sleep_awake_ms;
+	long time_updated_when_sleep_awake_ms_temp;
+	//static unsigned amss_sleep_time_ms = 0;
+	//unsigned amss_sleep_time_ms_temp = 0;
+	//int percentage_amss_not_sleep_while_app_suspend = 0;	//the percentage of modem awake while app suspend in %o;
+	static bool sleep_success_flag = false;  //set true while msm_pm_collapse returned 1 by passing record_sleep_awake as true;
+
+	if (!((MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE) & msm_pm_debug_mask) )
+		return ;
+
+	ts = current_kernel_time();
+	time_updated_when_sleep_awake_ms_temp = (long)((ts.tv_sec - time_updated_when_sleep_awake.tv_sec) * MSEC_PER_SEC + (int)((ts.tv_nsec / NSEC_PER_MSEC) - (time_updated_when_sleep_awake.tv_nsec / NSEC_PER_MSEC)));
+	time_updated_when_sleep_awake_s = (int)(time_updated_when_sleep_awake_ms_temp/MSEC_PER_SEC);
+	time_updated_when_sleep_awake_ms = (int)(time_updated_when_sleep_awake_ms_temp - time_updated_when_sleep_awake_s * MSEC_PER_SEC);
+//	MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE,
+//		KERN_INFO, "%s(): keep: %10d.%03d s !!!!!!!!!!%s\n", __func__,time_updated_when_sleep_awake_s,time_updated_when_sleep_awake_ms,record_sleep_awake?"awake":"sleep");
+	if(record_sleep_awake)//record awake time
+	{
+		sleep_success_flag = true;
+		MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE,
+			KERN_INFO, "%s(): APP keep: %10d.%03d s !!!!!!!!!!awake   lcd on for %10d s %3d %%\n", __func__,time_updated_when_sleep_awake_s,time_updated_when_sleep_awake_ms,(int)lateresume_2_earlysuspend_time_s,(int)(lateresume_2_earlysuspend_time_s*100/(time_updated_when_sleep_awake_s + 1)));//in case Division by zero, +1
+		time_updated_when_sleep_awake = ts; 
+		lateresume_2_earlysuspend_time_s = 0;	//LHX_PM_20110411_01 clear how long the lcd keeps on
+	}
+	else	//record sleep time
+	{
+		if(!sleep_success_flag) //only record sleep time while really resume after successfully suspend/sleep;
+		{
+			printk("%s: modem sleep: resume after fail to suspend\n",__func__);
+			return;
+		}
+		sleep_success_flag = false;
+//		amss_sleep_time_ms_temp = amss_sleep_time_ms;	//backup previous total sleep time
+		//amss_sleep_time_ms  = pm_modem_sleep_time_get();	//get new total sleep time
+		//printk("%s: modem sleep pre: %d  new %d ms\n",__func__,(int)amss_sleep_time_ms_temp ,amss_sleep_time_ms);
+	//	amss_sleep_time_ms_temp = amss_sleep_time_ms - amss_sleep_time_ms_temp; //get the sleep time through last sleep
+		//printk("%s: modem sleep this time: %d ms\n",__func__,(int)amss_sleep_time_ms_temp);
+//		amss_sleep_time_ms_temp = time_updated_when_sleep_awake_s - amss_sleep_time_ms_temp / MSEC_PER_SEC;	//get modem awake time while APP sleep IN second
+		//percentage_amss_not_sleep_while_app_suspend = (int)amss_sleep_time_ms_temp*1000/(time_updated_when_sleep_awake_s + 1);
+		MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE,
+		KERN_INFO, "%s(): APP keep: %10d.%03d s !!!!!!!!!!sleep!!!!!!!! \n", __func__,time_updated_when_sleep_awake_s,time_updated_when_sleep_awake_ms);//modem keep awake normally about 2% while app sleeps
+		time_updated_when_sleep_awake = ts; 
+	}
+
+}
+/*End LHX_PM_20110324_01 add code to record how long the APP sleeps or keeps awake*/
+#endif
+
+
 static bool msm_pm_spm_power_collapse(
 	unsigned int cpu, bool from_idle, bool notify_rpm)
 {
@@ -656,7 +747,7 @@ static bool msm_pm_spm_power_collapse(
 	bool collapsed = 0;
 	int ret;
 
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: notify_rpm %d\n",
 			cpu, __func__, (int) notify_rpm);
 
@@ -676,8 +767,11 @@ static bool msm_pm_spm_power_collapse(
 	vfp_flush_context();
 #endif
 
+	if (!from_idle && smp_processor_id() == 0)
+		printk(KERN_INFO "[PM] suspend end\n");
 	collapsed = msm_pm_l2x0_power_collapse();
-
+	if (!from_idle)
+		printk(KERN_INFO "[PM] resume start\n");
 	msm_pm_boot_config_after_pc(cpu);
 
 	if (collapsed) {
@@ -690,7 +784,7 @@ static bool msm_pm_spm_power_collapse(
 		local_fiq_enable();
 	}
 
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: msm_pm_collapse returned, collapsed %d\n",
 			cpu, __func__, collapsed);
 
@@ -719,12 +813,12 @@ static bool msm_pm_power_collapse(bool from_idle)
 	unsigned int avsdscr_setting;
 	bool collapsed;
 
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: idle %d\n",
 			cpu, __func__, (int)from_idle);
 
 	msm_pm_config_hw_before_power_down();
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: pre power down\n", cpu, __func__);
 
 	avsdscr_setting = avs_get_avsdscr();
@@ -738,8 +832,14 @@ static bool msm_pm_power_collapse(bool from_idle)
 	if (MSM_PM_DEBUG_CLOCK & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: change clock rate (old rate = %lu)\n",
 			cpu, __func__, saved_acpuclk_rate);
-
 	collapsed = msm_pm_spm_power_collapse(cpu, from_idle, true);
+
+#ifdef CONFIG_ZTE_PLATFORM_RECORD_APP_AWAKE_SUSPEND_TIME
+		if((collapsed == 1)&&(!from_idle))
+		{
+			record_sleep_awake_time(true);//LHX_PM_20110324_01 add code to record how long the APP sleeps or keeps awake 
+		}
+#endif
 
 	if (MSM_PM_DEBUG_CLOCK & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: restore clock rate to %lu\n",
@@ -750,10 +850,10 @@ static bool msm_pm_power_collapse(bool from_idle)
 
 	avs_reset_delays(avsdscr_setting);
 	msm_pm_config_hw_after_power_up();
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: post power up\n", cpu, __func__);
 
-	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
+	if (!from_idle && (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask))
 		pr_info("CPU%u: %s: return\n", cpu, __func__);
 	return collapsed;
 }
@@ -975,6 +1075,35 @@ bool msm_pm_verify_cpu_pc(unsigned int cpu)
 
 	return false;
 }
+#ifndef ZTE_GPIO_DEBUG
+#define ZTE_GPIO_DEBUG
+#endif
+
+#ifdef ZTE_GPIO_DEBUG
+extern int msm_dump_gpios(struct seq_file *m, int curr_len, char *gpio_buffer);
+extern int pm8xxx_dump_gpios(struct seq_file *m, int curr_len, char *gpio_buffer);
+static char *gpio_sleep_status_info;
+
+int print_gpio_buffer(struct seq_file *m)
+{
+	if (gpio_sleep_status_info)
+		seq_printf(m, gpio_sleep_status_info);
+	else
+		seq_printf(m, "Device haven't suspended yet!\n");
+
+	return 0;
+}
+EXPORT_SYMBOL(print_gpio_buffer);
+
+int free_gpio_buffer(void)
+{
+	kfree(gpio_sleep_status_info);
+	gpio_sleep_status_info = NULL;
+
+	return 0;
+}
+EXPORT_SYMBOL(free_gpio_buffer);
+#endif
 
 void msm_pm_cpu_enter_lowpower(unsigned int cpu)
 {
@@ -1003,8 +1132,10 @@ void msm_pm_cpu_enter_lowpower(unsigned int cpu)
 		per_cpu(msm_pm_last_slp_mode, cpu)
 			= MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE;
 		msm_pm_swfi();
-	} else
+	} else {
+		MARK(2);
 		per_cpu(msm_pm_last_slp_mode, cpu) = MSM_PM_SLEEP_MODE_NR;
+	}
 }
 
 int msm_pm_wait_cpu_shutdown(unsigned int cpu)
@@ -1041,6 +1172,9 @@ static int msm_pm_enter(suspend_state_t state)
 {
 	bool allow[MSM_PM_SLEEP_MODE_NR];
 	int i;
+#ifdef ZTE_GPIO_DEBUG
+	int curr_len = 0;
+#endif
 
 #ifdef CONFIG_MSM_IDLE_STATS
 	int64_t period = 0;
@@ -1049,7 +1183,31 @@ static int msm_pm_enter(suspend_state_t state)
 
 	if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 		pr_info("%s\n", __func__);
+#ifdef ZTE_GPIO_DEBUG
+	/*
+	 * Default not open the gpio dump,too much logs...
+	*/
+	if (MSM_PM_DEBUG_ZTE_LOGS & msm_pm_debug_mask) {
+		if (gpio_sleep_status_info) {
+			memset(gpio_sleep_status_info, 0,
+				sizeof(gpio_sleep_status_info));
+		} else {
+			gpio_sleep_status_info = kmalloc(25000, GFP_KERNEL);
+			if (!gpio_sleep_status_info) {
+				pr_err("[PM] kmalloc memory failed in %s\n",
+					__func__);
+				goto skip_dump;
+			}
+		}
 
+		curr_len = msm_dump_gpios(NULL, curr_len,
+						gpio_sleep_status_info);
+		curr_len = pm8xxx_dump_gpios(NULL, curr_len,
+						gpio_sleep_status_info);
+#endif
+	}
+
+skip_dump:
 	if (smp_processor_id()) {
 		__WARN();
 		goto enter_exit;

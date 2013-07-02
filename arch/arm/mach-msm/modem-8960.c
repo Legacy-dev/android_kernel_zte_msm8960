@@ -107,6 +107,7 @@ static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 		pr_err("Modem SMSM state changed to SMSM_RESET.\n"
 			"Probable err_fatal on the modem. "
 			"Calling subsystem restart...\n");
+		smd_diag();//tcd
 		subsystem_restart("modem");
 	}
 }

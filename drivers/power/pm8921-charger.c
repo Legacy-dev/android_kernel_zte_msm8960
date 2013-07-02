@@ -11,7 +11,8 @@
  *
  */
 #define pr_fmt(fmt)	"%s: " fmt, __func__
-
+//#define DEBUG //for debug
+//
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/platform_device.h>
@@ -27,9 +28,17 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/slab.h>
+#include <linux/seq_file.h>
 
 #include <mach/msm_xo.h>
 #include <mach/msm_hsusb.h>
+
+#define ZTE_CONFIG_SCREEN_ON_WITHOUT_KEYOCDE
+#define ZTE_CONFIG_LOW_BATTERY_ALARM
+
+#ifdef ZTE_CONFIG_LOW_BATTERY_ALARM
+#include <linux/mfd/pm8xxx/batt-alarm.h>
+#endif
 
 #define CHG_BUCK_CLOCK_CTRL	0x14
 
@@ -83,6 +92,10 @@
 #define EOC_CHECK_PERIOD_MS	10000
 /* check for USB unplug every 200 msecs */
 #define UNPLUG_CHECK_WAIT_PERIOD_MS 200
+
+#define FIRST_UPDATE_TIME_MS  3000
+
+//#define ZTE_OVD_FEATURE
 
 enum chg_fsm_state {
 	FSM_STATE_OFF_0 = 0,
@@ -150,6 +163,40 @@ enum chg_regulation_loop {
 			| INPUT_CURRENT_LOOP | INPUT_VOLTAGE_LOOP,
 };
 
+/*
+PM8921 Charger IRQs Definitions----------------------------------->
+1) atc_done_irq: auto trickle charging completed successfully 
+2) chg_failed_irq: auto charging has failed Maximum fast charging time exceeded without ever reaching termination current
+3) trkl_chg_on_irq: Interrupt is high when linear trickle charger is on during software controlled charging
+4) atc_failed_irq: auto trickle charging failed
+5) fast_chg_on_irq: charger is fast charging
+6) chg_done_irq: auto charging has completed successfully
+7) chgwdog_irq: Charger watchdog timer expired
+8) state_change_irq: charger state machine has changed states
+9) chg_gone_irq: Charger Removal was detected
+10) dcin_valid_irq: dc in charge path is valid
+11) dcin_uv_irq: Dc input charge path under-voltage
+12) dcin_ov_irq: dc input charge path over-voltage
+13) usbin_valid_irq: usb in charge path is valid
+14) usbin_uv_irq: usb input charge path under-voltage
+15) usbin_ov_irq: usb input charge path over-voltage
+16) coarse_det_low: Generated if both DC path and USB path input voltages are less then the coarse detect falling threshold (~0.7 V) for at least 1 second
+17) bat_inserted_irq: Battery inserted indicator
+18) bat_removed_irq: Battery removed indicator
+19) bat_temp_ok_irq: battery thermistor monitor is enabled and temperature is OK charging ( > 0 °„C) or too hot for charging ( < 40 °„C )
+20) bat_temp_too_cold_irq: battery thermistor monitor is enabled and temperature is too cold for charging ( < 0 °„C)
+21) bat_temp_too_hot_irq: battery thermistor monitor is enabled and temperature is too hot for charging ( > 40 °„C )
+22) loop_change_irq: Interrupt is generated when the SMBC buck transitions between control loops (VDD / IBAT / IUSB / VIN). Loop status can be read from test register.
+23) buck_vdd_loop_irq: Interrupts when SMBC buck transitions to voltage regulation loop. Can be used by software that needs to begin monitoring for end-of-charge, if current-based EoC is not used.
+24) vbatdet_low_irq: VBAT < VBATDET setting as measured by VBATDET comparator
+25) vbatdet_high_irq: VBATDET threshold reached : 1 = VBAT reached the top-off threshold setting (VBATDET register setting). Pulse charging begins (if enabled).
+26) vreg_ov_irq: Generated if SMBC buck detects and overshoot voltage greater then 5% of the programmed VDD_MAX value.
+27) vbat_ov_irq: Generated if VBAT > VBATDET for at least 1 us
+28) batfet_irq: BATFET closed : 1 = Battery FET has been closed, i.e. BAT_FET_N pin = 0. Either it was programmed via SBI, or the charger automatically closed due to VDD collapse protection, or due to pulse charging.
+29) overtemp_irq: Charger temperature exceeded PD_Temp_High2
+30) vcp_irq: VDD collapse protection was triggered. 1 = VDD went below VBAT and PMIC turned on the battery FET to prevent a shutdown.
+31) psi_irq: PMIC Serial Interface Interrupt for digital battery ID communication interface. Generated every time 32 PSI samples are transmitted or received
+*/
 enum pmic_chg_interrupts {
 	USBIN_VALID_IRQ = 0,
 	USBIN_OV_IRQ,
@@ -221,8 +268,8 @@ struct pm8921_chg_chip {
 	unsigned int			update_time;
 	unsigned int			max_voltage_mv;
 	unsigned int			min_voltage_mv;
-	int				cool_temp_dc;
-	int				warm_temp_dc;
+	              int			cool_temp_dc;
+	              int			warm_temp_dc;
 	unsigned int			temp_check_period;
 	unsigned int			cool_bat_chg_current;
 	unsigned int			warm_bat_chg_current;
@@ -261,9 +308,18 @@ struct pm8921_chg_chip {
 	struct delayed_work		unplug_check_work;
 	struct delayed_work		vin_collapse_check_work;
 	struct wake_lock		eoc_wake_lock;
+#ifdef ZTE_CONFIG_LOW_BATTERY_ALARM	
+	struct wake_lock batt_alarm_wake_lock;
+	struct work_struct batt_alarm_work;
+#endif	
+
+#ifdef ZTE_CONFIG_SCREEN_ON_WITHOUT_KEYOCDE
+      struct wake_lock charger_wake_lock;
+#endif
 	enum pm8921_chg_cold_thr	cold_thr;
 	enum pm8921_chg_hot_thr		hot_thr;
 	int				rconn_mohm;
+	u8                               active_path;
 };
 
 /* user space parameter to limit usb current */
@@ -274,12 +330,27 @@ static unsigned int usb_max_current;
  * pm_iusbmax_get() to get current maximum usb current setting.
  */
 static int usb_target_ma;
-static int charging_disabled;
+static int charging_disabled=0;
 static int thermal_mitigation;
+static int enable_to_shutdown=1;
+int g_charger_type=USB_CHG_TYPE__INVALID;
+static int boot_usb_flag=0;
+static char *charger_type[] = {
+    "USB","carkit", "wall",  "invalid charger"
+};
 
 static struct pm8921_chg_chip *the_chip;
 
 static struct pm8xxx_adc_arb_btm_param btm_config;
+
+#ifdef ZTE_CONFIG_LOW_BATTERY_ALARM	//added by zhang.yu_1 for low battery alarm
+static int pm8921_low_battery_alarm_notify(struct notifier_block *nb,
+					  unsigned long status, void *unused);
+
+static struct notifier_block low_battery_alarm_notifier = {
+	.notifier_call = pm8921_low_battery_alarm_notify,
+};
+#endif
 
 static int pm_chg_masked_write(struct pm8921_chg_chip *chip, u16 addr,
 							u8 mask, u8 val)
@@ -304,20 +375,20 @@ static int pm_chg_masked_write(struct pm8921_chg_chip *chip, u16 addr,
 
 static int pm_chg_get_rt_status(struct pm8921_chg_chip *chip, int irq_id)
 {
-	return pm8xxx_read_irq_stat(chip->dev->parent,
-					chip->pmic_chg_irq[irq_id]);
+       return pm8xxx_read_irq_stat(chip->dev->parent,
+                                       chip->pmic_chg_irq[irq_id]);
 }
 
 /* Treat OverVoltage/UnderVoltage as source missing */
 static int is_usb_chg_plugged_in(struct pm8921_chg_chip *chip)
 {
-	return pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
+       return pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
 }
 
 /* Treat OverVoltage/UnderVoltage as source missing */
 static int is_dc_chg_plugged_in(struct pm8921_chg_chip *chip)
 {
-	return pm_chg_get_rt_status(chip, DCIN_VALID_IRQ);
+       return pm_chg_get_rt_status(chip, DCIN_VALID_IRQ);
 }
 
 #define CAPTURE_FSM_STATE_CMD	0xC2
@@ -385,7 +456,8 @@ static int pm_chg_get_regulation_loop(struct pm8921_chg_chip *chip)
 		pr_err("pm8xxx_readb fail: addr=%03X, rc=%d\n", CHG_TEST, err);
 		return err;
 	}
-
+	
+	pr_err("pm8961 temp = %d\n", temp);
 	/* return the lower 4 bits */
 	return temp & CHG_ALL_LOOPS;
 }
@@ -441,7 +513,6 @@ static int __pm_chg_vddmax_set(struct pm8921_chg_chip *chip, int voltage)
 {
 	int remainder;
 	u8 temp = 0;
-
 	if (voltage < PM8921_CHG_VDDMAX_MIN
 			|| voltage > PM8921_CHG_VDDMAX_MAX) {
 		pr_err("bad mV=%d asked to set\n", voltage);
@@ -479,44 +550,44 @@ static int pm_chg_vddmax_get(struct pm8921_chg_chip *chip, int *voltage)
 
 static int pm_chg_vddmax_set(struct pm8921_chg_chip *chip, int voltage)
 {
-	int current_mv, ret, steps, i;
-	bool increase;
+       int current_mv, ret, steps, i;
+       bool increase;
 
-	ret = 0;
+       ret = 0;
 
-	if (voltage < PM8921_CHG_VDDMAX_MIN
-		|| voltage > PM8921_CHG_VDDMAX_MAX) {
-		pr_err("bad mV=%d asked to set\n", voltage);
-		return -EINVAL;
-	}
+       if (voltage < PM8921_CHG_VDDMAX_MIN
+               || voltage > PM8921_CHG_VDDMAX_MAX) {
+               pr_err("bad mV=%d asked to set\n", voltage);
+               return -EINVAL;
+       }
 
-	ret = pm_chg_vddmax_get(chip, &current_mv);
-	if (ret) {
-		pr_err("Failed to read vddmax rc=%d\n", ret);
-		return -EINVAL;
-	}
-	if (current_mv == voltage)
-		return 0;
+       ret = pm_chg_vddmax_get(chip, &current_mv);
+       if (ret) {
+               pr_err("Failed to read vddmax rc=%d\n", ret);
+               return -EINVAL;
+       }
+       if (current_mv == voltage)
+               return 0;
 
-	/* Only change in increments when USB is present */
-	if (is_usb_chg_plugged_in(chip)) {
-		if (current_mv < voltage) {
-			steps = (voltage - current_mv) / PM8921_CHG_V_STEP_MV;
-			increase = true;
-		} else {
-			steps = (current_mv - voltage) / PM8921_CHG_V_STEP_MV;
-			increase = false;
-		}
-		for (i = 0; i < steps; i++) {
-			if (increase)
-				current_mv += PM8921_CHG_V_STEP_MV;
-			else
-				current_mv -= PM8921_CHG_V_STEP_MV;
-			ret |= __pm_chg_vddmax_set(chip, current_mv);
-		}
-	}
-	ret |= __pm_chg_vddmax_set(chip, voltage);
-	return ret;
+       /* Only change in increments when USB is present */
+       if (is_usb_chg_plugged_in(chip)) {
+               if (current_mv < voltage) {
+                       steps = (voltage - current_mv) / PM8921_CHG_V_STEP_MV;
+                       increase = true;
+               } else {
+                       steps = (current_mv - voltage) / PM8921_CHG_V_STEP_MV;
+                       increase = false;
+               }
+               for (i = 0; i < steps; i++) {
+                       if (increase)
+                               current_mv += PM8921_CHG_V_STEP_MV;
+                       else
+                               current_mv -= PM8921_CHG_V_STEP_MV;
+                       ret |= __pm_chg_vddmax_set(chip, current_mv);
+               }
+       }
+       ret |= __pm_chg_vddmax_set(chip, voltage);
+       return ret;
 }
 
 #define PM8921_CHG_VDDSAFE_MIN	3400
@@ -547,7 +618,7 @@ static int pm_chg_vbatdet_set(struct pm8921_chg_chip *chip, int voltage)
 		return -EINVAL;
 	}
 	temp = (voltage - PM8921_CHG_V_MIN_MV) / PM8921_CHG_V_STEP_MV;
-	pr_debug("voltage=%d setting %02x\n", voltage, temp);
+	printk("pm8921 pm_chg_vbatdet_set:voltage=%d setting %02x\n", voltage, temp);
 	return pm_chg_masked_write(chip, CHG_VBAT_DET, PM8921_CHG_V_MASK, temp);
 }
 
@@ -593,6 +664,8 @@ static int pm_chg_vinmin_get(struct pm8921_chg_chip *chip)
 static int pm_chg_ibatmax_set(struct pm8921_chg_chip *chip, int chg_current)
 {
 	u8 temp;
+
+	printk("pm8921 pm_chg_ibatmax_set=%d\n",chg_current);
 
 	if (chg_current < PM8921_CHG_IBATMAX_MIN
 			|| chg_current > PM8921_CHG_IBATMAX_MAX) {
@@ -679,7 +752,6 @@ static struct usb_ma_limit_entry usb_ma_table[] = {
 	{1500, 0xE},
 	{1600, 0xF},
 };
-
 #define PM8921_CHG_IUSB_MASK 0x1C
 #define PM8921_CHG_IUSB_SHIFT 2
 #define PM8921_CHG_IUSB_MAX  7
@@ -689,6 +761,7 @@ static int pm_chg_iusbmax_set(struct pm8921_chg_chip *chip, int reg_val)
 {
 	u8 temp, fineres;
 	int rc;
+	printk("pm8921 pm_chg_iusbmax_set mA=%d\n", reg_val);
 
 	fineres = PM8917_IUSB_FINE_RES & usb_ma_table[reg_val].value;
 	reg_val = usb_ma_table[reg_val].value >> 1;
@@ -1095,6 +1168,7 @@ static void bms_notify(struct work_struct *work)
 {
 	struct bms_notify *n = container_of(work, struct bms_notify, work);
 
+	printk(" pm8921 bms_notify: is_charging=%d\n ",n->is_charging);
 	if (n->is_charging) {
 		pm8921_bms_charging_began();
 	} else {
@@ -1131,6 +1205,38 @@ static char *pm_power_supplied_to[] = {
 	"battery",
 };
 
+#if 0
+static int pm_power_get_property(struct power_supply *psy,
+				  enum power_supply_property psp,
+				  union power_supply_propval *val)
+{
+	struct pm8921_chg_chip *chip;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_PRESENT:
+	case POWER_SUPPLY_PROP_ONLINE:
+		if (psy->type == POWER_SUPPLY_TYPE_USB ||
+			psy->type == POWER_SUPPLY_TYPE_USB_DCP ||
+			psy->type == POWER_SUPPLY_TYPE_USB_CDP ||
+			psy->type == POWER_SUPPLY_TYPE_USB_ACA) {
+			chip = container_of(psy, struct pm8921_chg_chip,
+							usb_psy);
+			if (pm_is_chg_charge_dis_bit_set(chip))
+				val->intval = 0;
+			else
+				val->intval = is_usb_chg_plugged_in(chip);
+		}
+
+		if (psy->type == POWER_SUPPLY_TYPE_MAINS) {
+			val->intval =( g_charger_type==USB_CHG_TYPE__WALLCHARGER);
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+#else
 #define USB_WALL_THRESHOLD_MA	500
 static int pm_power_get_property_mains(struct power_supply *psy,
 				  enum power_supply_property psp,
@@ -1164,7 +1270,11 @@ static int pm_power_get_property_mains(struct power_supply *psy,
 		}
 
 		/* USB with max current greater than 500 mA connected */
+		#if 0//modified by zhang.yu_1
+		if(!strcmp(charger_type[g_charger_type], "wall"))
+		#else
 		if (usb_target_ma > USB_WALL_THRESHOLD_MA)
+		#endif
 			val->intval = is_usb_chg_plugged_in(the_chip);
 			return 0;
 
@@ -1208,7 +1318,11 @@ static int pm_power_get_property_usb(struct power_supply *psy,
 			return 0;
 
 		/* USB charging */
-		if (usb_target_ma < USB_WALL_THRESHOLD_MA)
+		#if 0//modified by zhang.yu_1
+		if(!strcmp(charger_type[g_charger_type], "USB"))
+		#else
+		if (usb_target_ma <= USB_WALL_THRESHOLD_MA)
+		#endif
 			val->intval = is_usb_chg_plugged_in(the_chip);
 		else
 		    return 0;
@@ -1218,6 +1332,7 @@ static int pm_power_get_property_usb(struct power_supply *psy,
 	}
 	return 0;
 }
+#endif
 
 static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -1250,6 +1365,35 @@ static int get_prop_battery_uvolts(struct pm8921_chg_chip *chip)
 	return (int)result.physical;
 }
 
+static int get_prop_batt_status(struct pm8921_chg_chip *chip)
+{
+	int batt_state = POWER_SUPPLY_STATUS_DISCHARGING;
+	int fsm_state = pm_chg_get_fsm_state(chip);
+	int i;
+
+	if (chip->ext_psy) {
+		if (chip->ext_charge_done)
+			return POWER_SUPPLY_STATUS_FULL;
+		if (chip->ext_charging)
+			return POWER_SUPPLY_STATUS_CHARGING;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(map); i++)
+		if (map[i].fsm_state == fsm_state)
+			batt_state = map[i].batt_state;
+
+	if (fsm_state == FSM_STATE_ON_CHG_HIGHI_1) {
+		if (!pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ)
+			|| !pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ)
+			|| pm_chg_get_rt_status(chip, CHGHOT_IRQ)
+			|| pm_chg_get_rt_status(chip, VBATDET_LOW_IRQ))
+
+			batt_state = POWER_SUPPLY_STATUS_NOT_CHARGING;
+	}
+	return batt_state;
+}
+
+
 static unsigned int voltage_based_capacity(struct pm8921_chg_chip *chip)
 {
 	unsigned int current_voltage_uv = get_prop_battery_uvolts(chip);
@@ -1266,25 +1410,82 @@ static unsigned int voltage_based_capacity(struct pm8921_chg_chip *chip)
 		    / (high_voltage - low_voltage);
 }
 
+static int g_bms_flag=1;
 static int get_prop_batt_present(struct pm8921_chg_chip *chip)
 {
 	return pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ);
 }
-
 static int get_prop_batt_capacity(struct pm8921_chg_chip *chip)
 {
-	int percent_soc;
+	int percent_soc, voltage,status;
+	//#if defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_ELDEN)  //ZTE_XJB_PM_20120831
+	static  int first_time_run=10;   //ZTE_XJB_PM_20120831
+	static  int double_check=0;      //ZTE_XJB_PM_20120831
+	//#endif
+	percent_soc= pm8921_bms_get_percent_charge();
+	g_bms_flag=0;
 
 	if (!get_prop_batt_present(chip))
+	{
 		percent_soc = voltage_based_capacity(chip);
+		g_bms_flag=0;
+	}
 	else
+	{
 		percent_soc = pm8921_bms_get_percent_charge();
+		g_bms_flag=1;
+	}
 
 	if (percent_soc == -ENXIO)
+	{
 		percent_soc = voltage_based_capacity(chip);
+		g_bms_flag=2;
+	}
+	else
+	{
+	      //modify by stone 20120309 
+              if((get_prop_batt_status(chip)==POWER_SUPPLY_STATUS_FULL)&&percent_soc!=100)
+              {
+                     percent_soc=100;
+			g_bms_flag=3;
+               }
+	 }
 
-	if (percent_soc <= 10)
-		pr_warn("low battery charge = %d%%\n", percent_soc);
+       //only test by stone 20120709 for low battery protect
+       voltage=get_prop_battery_uvolts(chip);
+       status=get_prop_batt_status(chip);
+	//#if defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_ELDEN)  //ZTE_XJB_PM_20120831 start
+	if ((first_time_run>=1)&&(voltage>3200000))   
+	{
+	  printk("ZTE get_prop_batt_capacity voltage = %d,first_time_run=%d,percent_soc=%d%%\n", voltage,first_time_run,percent_soc);
+          first_time_run--;
+	  if (percent_soc <= 3)
+	  return 1;
+	}
+        //#endif
+	if ((percent_soc <= 3)&&(voltage<3400000)&&(status!=POWER_SUPPLY_STATUS_CHARGING))
+	{
+		printk("slf low battery charge = %d%%,voltage=%d\n", percent_soc,voltage);
+	   //#if defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_ELDEN) //ZTE_XJB_PM_20120831 start
+               if(double_check>=1)
+	       {
+	            double_check=0;
+		percent_soc = 0;
+	       }
+	       else{ 
+		    double_check++;
+		}    //ZTE_XJB_PM_20120831  end
+           //#else
+           //         percent_soc = 0;
+           //#endif
+		g_bms_flag=4;
+	}
+
+	if((percent_soc==0)&&(!enable_to_shutdown))
+	{
+             percent_soc=1;
+	      g_bms_flag=g_bms_flag+10;	 
+	}
 
 	return percent_soc;
 }
@@ -1355,33 +1556,6 @@ static int get_prop_charge_type(struct pm8921_chg_chip *chip)
 	return POWER_SUPPLY_CHARGE_TYPE_NONE;
 }
 
-static int get_prop_batt_status(struct pm8921_chg_chip *chip)
-{
-	int batt_state = POWER_SUPPLY_STATUS_DISCHARGING;
-	int fsm_state = pm_chg_get_fsm_state(chip);
-	int i;
-
-	if (chip->ext_psy) {
-		if (chip->ext_charge_done)
-			return POWER_SUPPLY_STATUS_FULL;
-		if (chip->ext_charging)
-			return POWER_SUPPLY_STATUS_CHARGING;
-	}
-
-	for (i = 0; i < ARRAY_SIZE(map); i++)
-		if (map[i].fsm_state == fsm_state)
-			batt_state = map[i].batt_state;
-
-	if (fsm_state == FSM_STATE_ON_CHG_HIGHI_1) {
-		if (!pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ)
-			|| !pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ)
-			|| pm_chg_get_rt_status(chip, CHGHOT_IRQ)
-			|| pm_chg_get_rt_status(chip, VBATDET_LOW_IRQ))
-
-			batt_state = POWER_SUPPLY_STATUS_NOT_CHARGING;
-	}
-	return batt_state;
-}
 
 #define MAX_TOLERABLE_BATT_TEMP_DDC	680
 static int get_prop_batt_temp(struct pm8921_chg_chip *chip)
@@ -1479,10 +1653,10 @@ static void notify_usb_of_the_plugin_event(int plugin)
 {
 	plugin = !!plugin;
 	if (notify_vbus_state_func_ptr) {
-		pr_debug("notifying plugin\n");
+		printk("pm8921 notifying plugin\n");
 		(*notify_vbus_state_func_ptr) (plugin);
 	} else {
-		pr_debug("unable to notify plugin\n");
+		printk("pm8921 unable to notify plugin\n");
 	}
 }
 
@@ -1494,7 +1668,7 @@ static void __pm8921_charger_vbus_draw(unsigned int mA)
 		pr_err("called before init\n");
 		return;
 	}
-
+	
 	if (mA >= 0 && mA <= 2) {
 		usb_chg_current = 0;
 		rc = pm_chg_iusbmax_set(the_chip, 0);
@@ -1531,8 +1705,8 @@ void pm8921_charger_vbus_draw(unsigned int mA)
 {
 	unsigned long flags;
 
-	pr_debug("Enter charge=%d\n", mA);
-
+	printk("pm8921 Enter charge1=%d\n", mA);
+	
 	if (!the_chip) {
 		pr_err("chip not yet initalized\n");
 		return;
@@ -1552,6 +1726,15 @@ void pm8921_charger_vbus_draw(unsigned int mA)
 		pr_err("rejected: no other power source connected\n");
 		return;
 	}
+
+       if(mA>0&&mA<=500)
+	    g_charger_type=USB_CHG_TYPE__SDP;
+	else if (mA>500)
+	{
+	    g_charger_type=USB_CHG_TYPE__WALLCHARGER;
+	   // mA=700;//only test by stone 20120724 for moto charger
+	 }
+	printk("pm8921 Enter charge2=%d\n", mA);
 
 	if (usb_max_current && mA > usb_max_current) {
 		pr_warn("restricting usb current to %d instead of %d\n",
@@ -1821,9 +2004,23 @@ static void handle_usb_insertion_removal(struct pm8921_chg_chip *chip)
 
 	pm_chg_failed_clear(chip, 1);
 	usb_present = is_usb_chg_plugged_in(chip);
+       if(usb_present)
+       {
+           g_charger_type=USB_CHG_TYPE__WALLCHARGER;
+	    pm8921_chg_enable_irq(chip, FASTCHG_IRQ);
+       }
+	else
+	{
+           g_charger_type=USB_CHG_TYPE__INVALID;
+	    pm8921_chg_disable_irq(chip, FASTCHG_IRQ);
+	}
+	printk("pm8921 charger insert/remove isr:old=%d,new=%d--------!\n",chip->usb_present,usb_present);
 	if (chip->usb_present ^ usb_present) {
 		notify_usb_of_the_plugin_event(usb_present);
 		chip->usb_present = usb_present;
+#ifdef ZTE_CONFIG_SCREEN_ON_WITHOUT_KEYOCDE
+             wake_lock_timeout(&chip->charger_wake_lock, 5 * HZ);
+#endif
 		power_supply_changed(&chip->usb_psy);
 		power_supply_changed(&chip->batt_psy);
 		pm8921_bms_calibrate_hkadc();
@@ -1905,7 +2102,12 @@ static void handle_start_ext_chg(struct pm8921_chg_chip *chip)
 		return;
 	}
 
-	power_supply_set_online(chip->ext_psy, dc_present);
+	schedule_delayed_work(&chip->unplug_check_work,
+	round_jiffies_relative(msecs_to_jiffies
+		(UNPLUG_CHECK_WAIT_PERIOD_MS)));
+	pm8921_chg_enable_irq(chip, CHG_GONE_IRQ);
+
+       power_supply_set_online(chip->ext_psy, dc_present);
 	power_supply_set_charge_type(chip->ext_psy,
 					POWER_SUPPLY_CHARGE_TYPE_FAST);
 	power_supply_changed(&chip->dc_psy);
@@ -1917,51 +2119,51 @@ static void handle_start_ext_chg(struct pm8921_chg_chip *chip)
 	wake_lock(&chip->eoc_wake_lock);
 }
 
-static void turn_off_usb_ovp_fet(struct pm8921_chg_chip *chip)
+static void turn_off_ovp_fet(struct pm8921_chg_chip *chip, u16 ovptestreg)
 {
 	u8 temp;
 	int rc;
 
-	rc = pm8xxx_writeb(chip->dev->parent, USB_OVP_TEST, 0x30);
+	rc = pm8xxx_writeb(chip->dev->parent, ovptestreg, 0x30);
 	if (rc) {
-		pr_err("Failed to write 0x30 to USB_OVP_TEST rc = %d\n", rc);
+		pr_err("Failed to write 0x30 to OVP_TEST rc = %d\n", rc);
 		return;
 	}
-	rc = pm8xxx_readb(chip->dev->parent, USB_OVP_TEST, &temp);
+	rc = pm8xxx_readb(chip->dev->parent, ovptestreg, &temp);
 	if (rc) {
-		pr_err("Failed to read from USB_OVP_TEST rc = %d\n", rc);
+		pr_err("Failed to read from OVP_TEST rc = %d\n", rc);
 		return;
 	}
 	/* set ovp fet disable bit and the write bit */
 	temp |= 0x81;
-	rc = pm8xxx_writeb(chip->dev->parent, USB_OVP_TEST, temp);
+	rc = pm8xxx_writeb(chip->dev->parent, ovptestreg, temp);
 	if (rc) {
-		pr_err("Failed to write 0x%x USB_OVP_TEST rc=%d\n", temp, rc);
+		pr_err("Failed to write 0x%x OVP_TEST rc=%d\n", temp, rc);
 		return;
 	}
 }
 
-static void turn_on_usb_ovp_fet(struct pm8921_chg_chip *chip)
+static void turn_on_ovp_fet(struct pm8921_chg_chip *chip, u16 ovptestreg)
 {
 	u8 temp;
 	int rc;
 
-	rc = pm8xxx_writeb(chip->dev->parent, USB_OVP_TEST, 0x30);
+	rc = pm8xxx_writeb(chip->dev->parent, ovptestreg, 0x30);
 	if (rc) {
-		pr_err("Failed to write 0x30 to USB_OVP_TEST rc = %d\n", rc);
+		pr_err("Failed to write 0x30 to OVP_TEST rc = %d\n", rc);
 		return;
 	}
-	rc = pm8xxx_readb(chip->dev->parent, USB_OVP_TEST, &temp);
+	rc = pm8xxx_readb(chip->dev->parent, ovptestreg, &temp);
 	if (rc) {
-		pr_err("Failed to read from USB_OVP_TEST rc = %d\n", rc);
+		pr_err("Failed to read from OVP_TEST rc = %d\n", rc);
 		return;
 	}
 	/* unset ovp fet disable bit and set the write bit */
 	temp &= 0xFE;
 	temp |= 0x80;
-	rc = pm8xxx_writeb(chip->dev->parent, USB_OVP_TEST, temp);
+	rc = pm8xxx_writeb(chip->dev->parent, ovptestreg, temp);
 	if (rc) {
-		pr_err("Failed to write 0x%x to USB_OVP_TEST rc = %d\n",
+		pr_err("Failed to write 0x%x to OVP_TEST rc = %d\n",
 								temp, rc);
 		return;
 	}
@@ -1970,38 +2172,66 @@ static void turn_on_usb_ovp_fet(struct pm8921_chg_chip *chip)
 static int param_open_ovp_counter = 10;
 module_param(param_open_ovp_counter, int, 0644);
 
+#define USB_ACTIVE_BIT BIT(5)
+#define DC_ACTIVE_BIT BIT(6)
+static int is_active_chg_plugged_in(struct pm8921_chg_chip *chip,
+						u8 active_chg_mask)
+{
+	if (active_chg_mask & USB_ACTIVE_BIT)
+		return pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
+	else if (active_chg_mask & DC_ACTIVE_BIT)
+		return pm_chg_get_rt_status(chip, DCIN_VALID_IRQ);
+	else
+		return 0;
+}
+
 #define WRITE_BANK_4		0xC0
-#define USB_OVP_DEBOUNCE_TIME 0x06
+#define OVP_DEBOUNCE_TIME 0x06
 static void unplug_ovp_fet_open(struct pm8921_chg_chip *chip)
 {
-	int chg_gone, usb_chg_plugged_in;
+	int chg_gone = 0, active_chg_plugged_in = 0;
 	int count = 0;
+	u8 active_mask = 0;
+	u16 ovpreg, ovptestreg;
+
+	if (is_usb_chg_plugged_in(chip) &&
+		(chip->active_path & USB_ACTIVE_BIT)) {
+		ovpreg = USB_OVP_CONTROL;
+		ovptestreg = USB_OVP_TEST;
+		active_mask = USB_ACTIVE_BIT;
+	} else if (is_dc_chg_plugged_in(chip) &&
+		(chip->active_path & DC_ACTIVE_BIT)) {
+		ovpreg = DC_OVP_CONTROL;
+		ovptestreg = DC_OVP_TEST;
+		active_mask = DC_ACTIVE_BIT;
+	} else {
+		return;
+	}
 
 	while (count++ < param_open_ovp_counter) {
-		pm_chg_masked_write(chip, USB_OVP_CONTROL,
-						USB_OVP_DEBOUNCE_TIME, 0x0);
+		pm_chg_masked_write(chip, ovpreg, OVP_DEBOUNCE_TIME, 0x0);
 		usleep(10);
-		usb_chg_plugged_in = is_usb_chg_plugged_in(chip);
+		active_chg_plugged_in
+			= is_active_chg_plugged_in(chip, active_mask);
 		chg_gone = pm_chg_get_rt_status(chip, CHG_GONE_IRQ);
-		pr_debug("OVP FET count = %d chg_gone=%d, usb_valid = %d\n",
-					count, chg_gone, usb_chg_plugged_in);
+		pr_debug("OVP FET count = %d chg_gone=%d, active_valid = %d\n",
+					count, chg_gone, active_chg_plugged_in);
 
 		/* note usb_chg_plugged_in=0 => chg_gone=1 */
-		if (chg_gone == 1 && usb_chg_plugged_in == 1) {
+		if (chg_gone == 1 && active_chg_plugged_in == 1) {
 			pr_debug("since chg_gone = 1 dis ovp_fet for 20msec\n");
-			turn_off_usb_ovp_fet(chip);
+			turn_off_ovp_fet(chip, ovptestreg);
 
 			msleep(20);
 
-			turn_on_usb_ovp_fet(chip);
+			turn_on_ovp_fet(chip, ovptestreg);
 		} else {
 			break;
 		}
 	}
-	pm_chg_masked_write(chip, USB_OVP_CONTROL,
-		USB_OVP_DEBOUNCE_TIME, 0x2);
-	pr_debug("Exit count=%d chg_gone=%d, usb_valid=%d\n",
-		count, chg_gone, usb_chg_plugged_in);
+	pm_chg_masked_write(chip, ovpreg, OVP_DEBOUNCE_TIME, 0x2);
+	pr_debug("Exit count=%d chg_gone=%d, active_valid=%d\n",
+		count, chg_gone, active_chg_plugged_in);
 	return;
 }
 
@@ -2085,7 +2315,7 @@ static irqreturn_t usbin_valid_irq_handler(int irq, void *data)
 
 static irqreturn_t usbin_ov_irq_handler(int irq, void *data)
 {
-	pr_err("USB OverVoltage\n");
+	printk("pm8921 USB OverVoltage\n");
 	return IRQ_HANDLED;
 }
 
@@ -2097,7 +2327,7 @@ static irqreturn_t batt_inserted_irq_handler(int irq, void *data)
 	status = pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ);
 	schedule_work(&chip->battery_id_valid_work);
 	handle_start_ext_chg(chip);
-	pr_debug("battery present=%d", status);
+	printk("pm8921 battery present=%d\n", status);
 	power_supply_changed(&chip->batt_psy);
 	return IRQ_HANDLED;
 }
@@ -2121,67 +2351,137 @@ static irqreturn_t vbatdet_low_irq_handler(int irq, void *data)
 	if (high_transition) {
 		/* enable auto charging */
 		pm_chg_auto_enable(chip, !charging_disabled);
-		pr_info("batt fell below resume voltage %s\n",
+		printk("batt fell below resume voltage %s\n",
 			charging_disabled ? "" : "charger enabled");
 	}
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 vbatdet_low_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
 	power_supply_changed(&chip->dc_psy);
 
+	pm8921_chg_enable_irq(chip, FASTCHG_IRQ); //slf warning
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t usbin_uv_irq_handler(int irq, void *data)
 {
-	pr_err("USB UnderVoltage\n");
+       printk("pm8921 usbin_uv_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t vbat_ov_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+#if 1
+//add by stone 20120309
+/****************************************************************/ 
+        struct pm8921_chg_chip *chip = data; 
+        
+        int high_transition; 
+        int rt_status; 
+
+	 printk("pm8921 vbat_ov_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));	
+        
+        high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ); 
+        rt_status = pm_chg_get_rt_status(chip, VDD_LOOP_IRQ); 
+        
+        printk("pm8921 FASTCHG_IRQ=%d,VDD_LOOP_IRQ=%d\n", high_transition,rt_status); 
+         
+        pm_chg_vbatdet_set(chip,chip->max_voltage_mv + chip->resume_voltage_delta);  //set vbat to be higher 
+
+//	 pm8921_chg_disable_irq(chip, VBAT_OV_IRQ);
+/****************************************************************/ 
+
+#else
+	/****************************************************************/		
+
+	struct pm8921_chg_chip *chip = data;
+
+	int high_transition;
+	int rt_status;
+
+	printk("pm8921 vbat_ov_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));
+
+	high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
+
+	rt_status = pm_chg_get_rt_status(chip, VDD_LOOP_IRQ);
+	
+	if(rt_status && high_transition)
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			+ chip->resume_voltage_delta);
+
+		printk("pm8921 vbat_ov_irq_handler1:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}	
+	else
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			- chip->resume_voltage_delta);
+
+		printk("pm8921 vbat_ov_irq_handler2:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}
+	/****************************************************************/	
+#endif
+
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t chgwdog_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 chgwdog_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t vcp_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 VCP triggered BATDET forced on\n");
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t atcdone_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 atcdone_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t atcfail_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 atcfail_irq_handler: fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t chgdone_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
+	
+#if 0
+       int rc;
+       rc=pm_chg_vddmax_set(chip,	chip->max_voltage_mv	+ chip->resume_voltage_delta);
+	if (rc) {
+		pr_err("Failed to set max voltage to %d rc=%d\n",
+						chip->max_voltage_mv	+ chip->resume_voltage_delta, rc);
+		return rc;
+	}
+#endif
 
-	pr_debug("state_changed_to=%d\n", pm_chg_get_fsm_state(data));
+      pm8921_chg_disable_irq(chip, VBAT_OV_IRQ);
+      //When charging is done, need to reset the vbatdet,add by stone 20120309
+      pm_chg_vbatdet_set(chip,chip->max_voltage_mv - chip->resume_voltage_delta);  
+ 
+	printk("pm8921 chgdone_irq_handler:state_changed_to=%d\n", pm_chg_get_fsm_state(data));
 
 	handle_stop_ext_chg(chip);
-
+	
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
 	power_supply_changed(&chip->dc_psy);
 
 	bms_notify_check(chip);
+
 
 	return IRQ_HANDLED;
 }
@@ -2195,7 +2495,7 @@ static irqreturn_t chgfail_irq_handler(int irq, void *data)
 	if (ret)
 		pr_err("Failed to write CHG_FAILED_CLEAR bit\n");
 
-	pr_err("batt_present = %d, batt_temp_ok = %d, state_changed_to=%d\n",
+	printk("pm8921 batt_present = %d, batt_temp_ok = %d, state_changed_to=%d\n",
 			get_prop_batt_present(chip),
 			pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ),
 			pm_chg_get_fsm_state(data));
@@ -2210,7 +2510,7 @@ static irqreturn_t chgstate_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	pr_debug("state_changed_to=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 chgstate_irq_handler:state_changed_to=%d\n", pm_chg_get_fsm_state(data));
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
 	power_supply_changed(&chip->dc_psy);
@@ -2226,20 +2526,22 @@ module_param(param_vin_disable_counter, int, 0644);
 static void attempt_reverse_boost_fix(struct pm8921_chg_chip *chip,
 							int count, int usb_ma)
 {
+	if (usb_ma)
 	__pm8921_charger_vbus_draw(500);
-	pr_debug("count = %d iusb=500mA\n", count);
+	printk("count = %d iusb=500mA\n", count);
 	disable_input_voltage_regulation(chip);
-	pr_debug("count = %d disable_input_regulation\n", count);
+	printk("count = %d disable_input_regulation\n", count);
 
 	msleep(20);
 
-	pr_debug("count = %d end sleep 20ms chg_gone=%d, usb_valid = %d\n",
+	printk("count = %d end sleep 20ms chg_gone=%d, usb_valid = %d\n",
 				count,
 				pm_chg_get_rt_status(chip, CHG_GONE_IRQ),
 				is_usb_chg_plugged_in(chip));
-	pr_debug("count = %d restoring input regulation and usb_ma = %d\n",
+	printk("count = %d restoring input regulation and usb_ma = %d\n",
 		 count, usb_ma);
 	enable_input_voltage_regulation(chip);
+	if (usb_ma)
 	__pm8921_charger_vbus_draw(usb_ma);
 }
 
@@ -2251,55 +2553,83 @@ static void unplug_check_worker(struct work_struct *work)
 	struct delayed_work *dwork = to_delayed_work(work);
 	struct pm8921_chg_chip *chip = container_of(dwork,
 				struct pm8921_chg_chip, unplug_check_work);
-	u8 reg_loop;
-	int ibat, usb_chg_plugged_in, usb_ma;
+	u8 reg_loop, active_path;
+	int rc, ibat, active_chg_plugged_in, usb_ma;
 	int chg_gone = 0;
+	static bool  vinmin_cfg_flag = false; 	/* for debug  */
 
 	reg_loop = 0;
-	usb_chg_plugged_in = is_usb_chg_plugged_in(chip);
-	if (!usb_chg_plugged_in) {
-		pr_debug("Stopping Unplug Check Worker since USB is removed"
-			"reg_loop = %d, fsm = %d ibat = %d\n",
-			pm_chg_get_regulation_loop(chip),
-			pm_chg_get_fsm_state(chip),
-			get_prop_batt_current(chip)
-			);
+
+	rc = pm8xxx_readb(chip->dev->parent, PBL_ACCESS1, &active_path);
+	if (rc) {
+		pr_err("Failed to read PBL_ACCESS1 rc=%d\n", rc);
 		return;
 	}
+	chip->active_path = active_path;
+
+	active_chg_plugged_in = is_active_chg_plugged_in(chip, active_path);
+	pr_debug("active_path = 0x%x, active_chg_plugged_in = %d\n",
+			active_path, active_chg_plugged_in);
+	if (active_path & USB_ACTIVE_BIT) {
+		pr_debug("USB charger active\n");
 
 	pm_chg_iusbmax_get(chip, &usb_ma);
+
 	if (usb_ma == 500 && !usb_target_ma) {
-		pr_debug("Stopping Unplug Check Worker since USB == 500mA\n");
+			pr_debug("Stopping Unplug Check Worker USB == 500mA\n");
 		disable_input_voltage_regulation(chip);
 		return;
 	}
 
 	if (usb_ma <= 100) {
 		pr_debug(
-			"Unenumerated yet or suspended usb_ma = %d skipping\n",
+				"Unenumerated or suspended usb_ma = %d skip\n",
 			usb_ma);
 		goto check_again_later;
 	}
-	if (pm8921_chg_is_enabled(chip, CHG_GONE_IRQ))
-		pr_debug("chg gone irq is enabled\n");
+	} else if (active_path & DC_ACTIVE_BIT) {
+		pr_debug("DC charger active\n");
+	} else {
+		/* No charger active */
+		if (!(is_usb_chg_plugged_in(chip)
+				&& !(is_dc_chg_plugged_in(chip)))) {
+			pr_debug(
+			"Stop: chg removed reg_loop = %d, fsm = %d ibat = %d\n",
+				pm_chg_get_regulation_loop(chip),
+				pm_chg_get_fsm_state(chip),
+				get_prop_batt_current(chip)
+				);
+			return;
+		}else{
+			goto check_again_later;
+		}
+	}
 
+	if (active_path & USB_ACTIVE_BIT) {
 	reg_loop = pm_chg_get_regulation_loop(chip);
-	pr_debug("reg_loop=0x%x usb_ma = %d\n", reg_loop, usb_ma);
-
-	if (reg_loop & VIN_ACTIVE_BIT) {
+		pr_debug("reg_loop=0x%x usb_ma = %d\n", reg_loop, usb_ma);
+		if ((reg_loop & VIN_ACTIVE_BIT) &&
+			(usb_ma > USB_WALL_THRESHOLD_MA)) {
 		decrease_usb_ma_value(&usb_ma);
+		/* for debug  */
+		if(!vinmin_cfg_flag){
+			vinmin_cfg_flag = true;
+			pm_chg_vinmin_set(the_chip, 4600);//set vinmin to 4.6v
+		}
+
 		usb_target_ma = usb_ma;
 		/* end AICL here */
 		__pm8921_charger_vbus_draw(usb_ma);
-		pr_debug("usb_now=%d, usb_target = %d\n",
+			pr_debug("pm8921-1:usb_now=%d, usb_target = %d\n",
 			usb_ma, usb_target_ma);
+	}
 	}
 
 	reg_loop = pm_chg_get_regulation_loop(chip);
 	pr_debug("reg_loop=0x%x usb_ma = %d\n", reg_loop, usb_ma);
 
+	ibat = get_prop_batt_current(chip);
 	if (reg_loop & VIN_ACTIVE_BIT) {
-		ibat = get_prop_batt_current(chip);
 
 		pr_debug("ibat = %d fsm = %d reg_loop = 0x%x\n",
 				ibat, pm_chg_get_fsm_state(chip), reg_loop);
@@ -2307,30 +2637,41 @@ static void unplug_check_worker(struct work_struct *work)
 			int count = 0;
 
 			while (count++ < param_vin_disable_counter
-					&& usb_chg_plugged_in == 1) {
-				attempt_reverse_boost_fix(chip, count, usb_ma);
-				usb_chg_plugged_in
-					= is_usb_chg_plugged_in(chip);
+					&& active_chg_plugged_in == 1) {
+				if (active_path & USB_ACTIVE_BIT)
+					attempt_reverse_boost_fix(chip,
+								count, usb_ma);
+				else
+					attempt_reverse_boost_fix(chip,
+								count, 0);
+				/* after reverse boost fix check if the active
+				 * charger was detected as removed */
+				active_chg_plugged_in
+					= is_active_chg_plugged_in(chip,
+						active_path);
+				pr_debug("active_chg_plugged_in = %d\n",
+						active_chg_plugged_in);
 			}
 		}
 	}
 
-	usb_chg_plugged_in = is_usb_chg_plugged_in(chip);
+	active_chg_plugged_in = is_active_chg_plugged_in(chip, active_path);
+	pr_debug("active_path = 0x%x, active_chg = %d\n",
+			active_path, active_chg_plugged_in);
 	chg_gone = pm_chg_get_rt_status(chip, CHG_GONE_IRQ);
 
-	if (chg_gone == 1  && usb_chg_plugged_in == 1) {
-		/* run the worker directly */
-		pr_debug(" ver5 step: chg_gone=%d, usb_valid = %d\n",
-						chg_gone, usb_chg_plugged_in);
+	if (chg_gone == 1  && active_chg_plugged_in == 1) {
+		pr_debug("chg_gone=%d, active_chg_plugged_in = %d\n",
+					chg_gone, active_chg_plugged_in);
 		unplug_ovp_fet_open(chip);
 	}
 
-	if (!(reg_loop & VIN_ACTIVE_BIT)) {
+	if (!(reg_loop & VIN_ACTIVE_BIT) && (active_path & USB_ACTIVE_BIT)) {
 		/* only increase iusb_max if vin loop not active */
 		if (usb_ma < usb_target_ma) {
 			increase_usb_ma_value(&usb_ma);
 			__pm8921_charger_vbus_draw(usb_ma);
-			pr_debug("usb_now=%d, usb_target = %d\n",
+			pr_debug("pm8921-2:usb_now=%d, usb_target = %d\n",
 					usb_ma, usb_target_ma);
 		} else {
 			usb_target_ma = usb_ma;
@@ -2347,7 +2688,7 @@ static irqreturn_t loop_change_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	pr_debug("fsm_state=%d reg_loop=0x%x\n",
+	printk("pm8921 loop_change_irq_handler fsm_state=%d reg_loop=0x%x\n",
 		pm_chg_get_fsm_state(data),
 		pm_chg_get_regulation_loop(data));
 	schedule_work(&chip->unplug_check_work.work);
@@ -2358,14 +2699,47 @@ static irqreturn_t fastchg_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 	int high_transition;
+#ifdef ZTE_OVD_FEATURE	
+	int rt_status;
+#endif
+       printk("pm8921 fastchg_irq0,fsm_state=%d\n", pm_chg_get_fsm_state(data));
 
 	high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
+	
 	if (high_transition && !delayed_work_pending(&chip->eoc_work)) {
+              pm8921_chg_enable_irq(chip, VBAT_OV_IRQ);//add by stone 20120307 for debug charging full
+
 		wake_lock(&chip->eoc_wake_lock);
 		schedule_delayed_work(&chip->eoc_work,
 				      round_jiffies_relative(msecs_to_jiffies
 						     (EOC_CHECK_PERIOD_MS)));
 	}
+	
+#ifdef ZTE_OVD_FEATURE
+/****************************************************************/		
+	rt_status = pm_chg_get_rt_status(chip, VDD_LOOP_IRQ);
+	
+	if(rt_status && high_transition)
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			+ chip->resume_voltage_delta);
+
+		printk("pm8921 fastchg_irq1:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}	
+	else
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			- chip->resume_voltage_delta);
+		
+		printk("pm8921 fastchg_irq2:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}
+/****************************************************************/	
+#endif
+
 	power_supply_changed(&chip->batt_psy);
 	bms_notify_check(chip);
 	return IRQ_HANDLED;
@@ -2375,6 +2749,7 @@ static irqreturn_t trklchg_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
+	printk("pm8921 trklchg_irq,fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	power_supply_changed(&chip->batt_psy);
 	return IRQ_HANDLED;
 }
@@ -2385,7 +2760,7 @@ static irqreturn_t batt_removed_irq_handler(int irq, void *data)
 	int status;
 
 	status = pm_chg_get_rt_status(chip, BATT_REMOVED_IRQ);
-	pr_debug("battery present=%d state=%d", !status,
+	printk("pm8921 batt_removed_irq_handler present=%d state=%d\n", !status,
 					 pm_chg_get_fsm_state(data));
 	handle_stop_ext_chg(chip);
 	power_supply_changed(&chip->batt_psy);
@@ -2396,6 +2771,7 @@ static irqreturn_t batttemp_hot_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
+       printk("pm8921 Batt hot fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	handle_stop_ext_chg(chip);
 	power_supply_changed(&chip->batt_psy);
 	return IRQ_HANDLED;
@@ -2405,9 +2781,10 @@ static irqreturn_t chghot_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	pr_debug("Chg hot fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 chghot_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);
 	handle_stop_ext_chg(chip);
 	return IRQ_HANDLED;
 }
@@ -2416,11 +2793,12 @@ static irqreturn_t batttemp_cold_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	pr_debug("Batt cold fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 batttemp_cold_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	handle_stop_ext_chg(chip);
 
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);
 	return IRQ_HANDLED;
 }
 
@@ -2429,6 +2807,7 @@ static irqreturn_t chg_gone_irq_handler(int irq, void *data)
 	struct pm8921_chg_chip *chip = data;
 	int chg_gone, usb_chg_plugged_in;
 
+	printk("pm8921 Chg gone fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	usb_chg_plugged_in = is_usb_chg_plugged_in(chip);
 	chg_gone = pm_chg_get_rt_status(chip, CHG_GONE_IRQ);
 
@@ -2437,6 +2816,7 @@ static irqreturn_t chg_gone_irq_handler(int irq, void *data)
 
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);
 	return IRQ_HANDLED;
 }
 /*
@@ -2457,7 +2837,7 @@ static irqreturn_t bat_temp_ok_irq_handler(int irq, void *data)
 
 	bat_temp_ok = pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ);
 
-	pr_debug("batt_temp_ok = %d fsm_state%d\n",
+	printk("pm8921 batt_temp_ok = %d fsm_state%d\n",
 			 bat_temp_ok, pm_chg_get_fsm_state(data));
 
 	if (bat_temp_ok)
@@ -2467,31 +2847,65 @@ static irqreturn_t bat_temp_ok_irq_handler(int irq, void *data)
 
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);
 	bms_notify_check(chip);
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t coarse_det_low_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 coarse_det_low_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t vdd_loop_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+#ifdef ZTE_OVD_FEATURE
+	/****************************************************************/		
+
+	struct pm8921_chg_chip *chip = data;
+
+	int high_transition;
+	int rt_status;
+
+	high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
+
+	rt_status = pm_chg_get_rt_status(chip, VDD_LOOP_IRQ);
+	
+	if(rt_status && high_transition)
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			+ chip->resume_voltage_delta);
+
+		printk("pm8921 vdd_loop_irq_handler1:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}	
+	else
+	{
+		pm_chg_vbatdet_set(chip,
+			chip->max_voltage_mv
+			- chip->resume_voltage_delta);
+
+		printk("pm8921 vdd_loop_irq_handler2:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);
+	}
+	/****************************************************************/	
+#endif
+
+	printk("pm8921 vdd_loop_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t vreg_ov_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t vbatdet_irq_handler(int irq, void *data)
 {
-	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
+	printk("pm8921 vreg_ov_irq_handler fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	return IRQ_HANDLED;
 }
 
@@ -2499,7 +2913,7 @@ static irqreturn_t batfet_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	pr_debug("vreg ov\n");
+	printk("pm8921 vreg ov\n");
 	power_supply_changed(&chip->batt_psy);
 	return IRQ_HANDLED;
 }
@@ -2572,11 +2986,42 @@ static void pm_batt_external_power_changed(struct power_supply *psy)
  *		per update_time minutes
  *
  */
+ extern int pm8xxx_dump_mpps(struct seq_file *m, int curr_len, char *gpio_buffer);
 static void update_heartbeat(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
 	struct pm8921_chg_chip *chip = container_of(dwork,
 				struct pm8921_chg_chip, update_heartbeat_work);
+
+	int vdd_max,temperature,voltage,capacity,status,charge_type,present,chg_current,fsm_state;
+
+       if(chip==NULL)
+      	{
+          printk("pm8921 fatal error:the_chip=null\n!!");
+      	 }
+	 else
+	 {
+               if(boot_usb_flag==1)
+               {
+                 notify_usb_of_the_plugin_event(chip->usb_present);
+                 boot_usb_flag=0;
+               }
+
+	 //       pm8xxx_dump_mpps(NULL, 0, NULL);
+
+  	        temperature =get_prop_batt_temp(chip)/10; 
+               voltage=get_prop_battery_uvolts(chip);
+  	        capacity =get_prop_batt_capacity(chip);
+               status=get_prop_batt_status(chip);
+  	        charge_type= get_prop_charge_type(chip);
+  	        present= is_battery_valid(chip);
+  	        chg_current=get_prop_batt_current(chip);
+		 fsm_state=pm_chg_get_fsm_state(chip);
+
+		 pm_chg_vddmax_get(chip,&vdd_max);
+	 
+	        printk( "pm8921 update_heartbeat: battery temp = %d,voltage=%d,capacity=%d_%d,status=%d,chg_type=%d,fsm_state=%d,charger_type=%s,current=%d,present=%d\n",  temperature,voltage,capacity,g_bms_flag,status,charge_type,fsm_state,charger_type[g_charger_type],chg_current,present);
+	 }
 
 	pm_chg_failed_clear(chip, 1);
 	power_supply_changed(&chip->batt_psy);
@@ -2669,7 +3114,8 @@ enum {
 #define CHG_DISABLE_MSLEEP	100
 static int is_charging_finished(struct pm8921_chg_chip *chip)
 {
-	int vbat_meas_uv, vbat_meas_mv, vbat_programmed, vbatdet_low;
+	int vbat_meas_uv, vbat_meas_mv, vbat_programmed;
+//	int vbatdet_low;
 	int ichg_meas_ma, iterm_programmed;
 	int regulation_loop, fast_chg, vcp;
 	int rc;
@@ -2678,23 +3124,26 @@ static int is_charging_finished(struct pm8921_chg_chip *chip)
 	if (!is_ext_charging(chip)) {
 		/* return if the battery is not being fastcharged */
 		fast_chg = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
-		pr_debug("fast_chg = %d\n", fast_chg);
+		printk("pm8921 fast_chg = %d\n", fast_chg);
 		if (fast_chg == 0)
 			return CHG_NOT_IN_PROGRESS;
 
 		vcp = pm_chg_get_rt_status(chip, VCP_IRQ);
-		pr_debug("vcp = %d\n", vcp);
+		printk("pm8921 vcp = %d\n", vcp);
 		if (vcp == 1)
 			return CHG_IN_PROGRESS;
-
+		
+		//don't check the VBATDET_LOW_IRQ, because vbatdet is increase in VBAT OV IRQ handler ,add by stone 20120309#if 
+ #if 0       
 		vbatdet_low = pm_chg_get_rt_status(chip, VBATDET_LOW_IRQ);
-		pr_debug("vbatdet_low = %d\n", vbatdet_low);
+		printk("pm8921 vbatdet_low = %d\n", vbatdet_low);
 		if (vbatdet_low == 1)
 			return CHG_IN_PROGRESS;
+  #endif     
 
 		/* reset count if battery is hot/cold */
 		rc = pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ);
-		pr_debug("batt_temp_ok = %d\n", rc);
+		printk("pm8921 batt_temp_ok = %d\n", rc);
 		if (rc == 0)
 			return CHG_IN_PROGRESS;
 
@@ -2706,11 +3155,11 @@ static int is_charging_finished(struct pm8921_chg_chip *chip)
 
 		rc = pm_chg_vddmax_get(chip, &vbat_programmed);
 		if (rc) {
-			pr_err("couldnt read vddmax rc = %d\n", rc);
+			printk("pm8921 couldnt read vddmax rc = %d\n", rc);
 			return CHG_IN_PROGRESS;
 		}
-		pr_debug("vddmax = %d vbat_meas_mv=%d\n",
-			 vbat_programmed, vbat_meas_mv);
+		printk("pm8921 vddmax = %d vbat_meas_mv=%d,zte_vdet_mv=%d\n",
+			 vbat_programmed, vbat_meas_mv,(chip->max_voltage_mv-VBAT_TOLERANCE_MV));
 
 		if (last_vbat_programmed == -EINVAL)
 			last_vbat_programmed = vbat_programmed;
@@ -2722,13 +3171,18 @@ static int is_charging_finished(struct pm8921_chg_chip *chip)
 			return CHG_IN_PROGRESS;
 		}
 
+#if 1
+            if(vbat_meas_mv<(chip->max_voltage_mv-VBAT_TOLERANCE_MV))
+			return CHG_IN_PROGRESS;
+#endif
+
 		regulation_loop = pm_chg_get_regulation_loop(chip);
 		if (regulation_loop < 0) {
 			pr_err("couldnt read the regulation loop err=%d\n",
 				regulation_loop);
 			return CHG_IN_PROGRESS;
 		}
-		pr_debug("regulation_loop=%d\n", regulation_loop);
+		printk("pm8921 regulation_loop=%d\n", regulation_loop);
 
 		if (regulation_loop != 0 && regulation_loop != VDD_LOOP)
 			return CHG_IN_PROGRESS;
@@ -2737,12 +3191,12 @@ static int is_charging_finished(struct pm8921_chg_chip *chip)
 	/* reset count if battery chg current is more than iterm */
 	rc = pm_chg_iterm_get(chip, &iterm_programmed);
 	if (rc) {
-		pr_err("couldnt read iterm rc = %d\n", rc);
+		printk("pm8921 couldnt read iterm rc = %d\n", rc);
 		return CHG_IN_PROGRESS;
 	}
 
 	ichg_meas_ma = (get_prop_batt_current(chip)) / 1000;
-	pr_debug("iterm_programmed = %d ichg_meas_ma=%d\n",
+	printk("pm8921 iterm_programmed = %d ichg_meas_ma=%d\n",
 				iterm_programmed, ichg_meas_ma);
 	/*
 	 * ichg_meas_ma < 0 means battery is drawing current
@@ -2794,7 +3248,7 @@ static void eoc_worker(struct work_struct *work)
 
 	if (count == CONSECUTIVE_COUNT) {
 		count = 0;
-		pr_info("End of Charging\n");
+		printk("pm8921 End of Charging\n");
 
 		pm_chg_auto_enable(chip, 0);
 
@@ -2809,6 +3263,7 @@ static void eoc_worker(struct work_struct *work)
 		chgdone_irq_handler(chip->pmic_chg_irq[CHGDONE_IRQ], chip);
 		wake_unlock(&chip->eoc_wake_lock);
 	} else {
+		printk("pm8921 EOC count = %d\n", count);
 		adjust_vdd_max_for_fastchg(chip);
 		pr_debug("EOC count = %d\n", count);
 		schedule_delayed_work(&chip->eoc_work,
@@ -2848,7 +3303,7 @@ static void set_appropriate_battery_current(struct pm8921_chg_chip *chip)
 #define TEMP_HYSTERISIS_DEGC 2
 static void battery_cool(bool enter)
 {
-	pr_debug("enter = %d\n", enter);
+		printk("pm8921 battery_cool enter = %d\n", enter);
 	if (enter == the_chip->is_bat_cool)
 		return;
 	the_chip->is_bat_cool = enter;
@@ -2873,7 +3328,7 @@ static void battery_cool(bool enter)
 
 static void battery_warm(bool enter)
 {
-	pr_debug("enter = %d\n", enter);
+	printk("pm8921 battery_warm enter = %d\n", enter);
 	if (enter == the_chip->is_bat_warm)
 		return;
 	the_chip->is_bat_warm = enter;
@@ -2909,7 +3364,7 @@ static int configure_btm(struct pm8921_chg_chip *chip)
 		btm_config.btm_cool_fn = battery_cool;
 	else
 		btm_config.btm_cool_fn = NULL;
-
+	
 	btm_config.low_thr_temp = chip->cool_temp_dc;
 	btm_config.high_thr_temp = chip->warm_temp_dc;
 	btm_config.interval = chip->temp_check_period;
@@ -3029,6 +3484,25 @@ static int set_usb_max_current(const char *val, struct kernel_param *kp)
 module_param_call(usb_max_current, set_usb_max_current,
 	param_get_uint, &usb_max_current, 0644);
 
+static int set_enable_to_shutdown(const char *val, struct kernel_param *kp)
+{
+	int ret;
+	struct pm8921_chg_chip *chip = the_chip;
+
+	ret = param_set_int(val, kp);
+	if (ret) {
+		pr_err("error setting value %d\n", ret);
+		return ret;
+	}
+	if (chip) {
+		pr_warn("set_enable_to_shutdown to %d\n", enable_to_shutdown);
+		return 0;
+	}
+	return -EINVAL;
+}
+module_param_call(enable_to_shutdown, set_enable_to_shutdown, param_get_uint,
+					&enable_to_shutdown, 0644);
+
 static void free_irqs(struct pm8921_chg_chip *chip)
 {
 	int i;
@@ -3040,17 +3514,38 @@ static void free_irqs(struct pm8921_chg_chip *chip)
 		}
 }
 
+#ifndef FTM_MODE_STR
+#define FTM_MODE_STR "androidboot.mode=ftm"
+#endif
+static int is_ftm_mode(void)
+{
+	if (strstr(saved_command_line, FTM_MODE_STR)){
+		printk("pm8921 is ftm mode\n");
+		return 1;
+		}
+	else	{
+		printk("pm8921 is not ftm mode\n");
+		return 0;
+		}
+}
+
 /* determines the initial present states */
 static void __devinit determine_initial_state(struct pm8921_chg_chip *chip)
 {
 	unsigned long flags;
 	int fsm_state;
+	int pre_chg_ma=0;
 
+       boot_usb_flag=0;
 	chip->dc_present = !!is_dc_chg_plugged_in(chip);
 	chip->usb_present = !!is_usb_chg_plugged_in(chip);
 
 	notify_usb_of_the_plugin_event(chip->usb_present);
 	if (chip->usb_present) {
+		/*this operation may interfere with usb2.0 recognition,
+		so eliminate it on FTM*/
+		if(!is_ftm_mode())	
+			boot_usb_flag=1; 		
 		schedule_delayed_work(&chip->unplug_check_work,
 			round_jiffies_relative(msecs_to_jiffies
 				(UNPLUG_CHECK_WAIT_PERIOD_MS)));
@@ -3069,8 +3564,12 @@ static void __devinit determine_initial_state(struct pm8921_chg_chip *chip)
 	pm8921_chg_enable_irq(chip, FASTCHG_IRQ);
 	pm8921_chg_enable_irq(chip, VBATDET_LOW_IRQ);
 	pm8921_chg_enable_irq(chip, BAT_TEMP_OK_IRQ);
+	pm8921_chg_enable_irq(chip, VBAT_OV_IRQ);//add by stone 20120307 for debug charging full
+	//pm8921_chg_enable_irq(chip, VDD_LOOP_IRQ); //add by stone 20120307 for debug charging full
 
 	spin_lock_irqsave(&vbus_lock, flags);
+	pre_chg_ma=usb_chg_current;
+	
 	if (usb_chg_current) {
 		/* reissue a vbus draw call */
 		__pm8921_charger_vbus_draw(usb_chg_current);
@@ -3086,11 +3585,22 @@ static void __devinit determine_initial_state(struct pm8921_chg_chip *chip)
 
 	check_battery_valid(chip);
 
-	pr_debug("usb = %d, dc = %d  batt = %d state=%d\n",
+	printk("pm8921 determine_initial_state:usb = %d, dc = %d  batt = %d state=%d,pre_ma=%d,usb_chg_current=%d,charging_disabled=%d\n",
 			chip->usb_present,
 			chip->dc_present,
 			get_prop_batt_present(chip),
-			fsm_state);
+			fsm_state,
+			pre_chg_ma,
+			usb_chg_current,
+			charging_disabled);
+	
+#if 0
+//add by stone 20120217 for boot with charger
+	if (chip->usb_present) {
+		notify_usb_of_the_plugin_event(chip->usb_present);
+		printk("pm8921 recall notify_usb_of_the_plugin_event to enter normal charging!\n");
+	}
+#endif	
 }
 
 struct pm_chg_irq_init_data {
@@ -3274,6 +3784,7 @@ static void pm8921_chg_set_hw_clk_switching(struct pm8921_chg_chip *chip)
 	}
 }
 
+
 #define ENUM_TIMER_STOP_BIT	BIT(1)
 #define BOOT_DONE_BIT		BIT(6)
 #define CHG_BATFET_ON_BIT	BIT(3)
@@ -3285,6 +3796,15 @@ static int __devinit pm8921_chg_hw_init(struct pm8921_chg_chip *chip)
 {
 	int rc;
 	int vdd_safe;
+	//int iusb_max;
+
+#ifdef ZTE_OVD_FEATURE	
+	int high_transition;
+	int rt_status;
+#endif
+
+	/* forcing 19p2mhz before accessing any charger registers */
+	pm8921_chg_force_19p2mhz_clk(chip);
 
 	rc = pm_chg_masked_write(chip, SYS_CONFIG_2,
 					BOOT_DONE_BIT, BOOT_DONE_BIT);
@@ -3347,6 +3867,20 @@ static int __devinit pm8921_chg_hw_init(struct pm8921_chg_chip *chip)
 		pr_err("Failed to set enum timer stop rc=%d\n", rc);
 		return rc;
 	}
+
+	
+#if 0
+	if (!get_prop_batt_present(chip))
+		iusb_max=1; /*no battery,init with the 500mA USB current to bootup */
+	else
+		iusb_max=0; /* init with the lowest(100mA)  USB current */
+
+       rc = pm_chg_iusbmax_set(chip, iusb_max);
+	if (rc) {
+		pr_err("Failed to set usb max to %d rc=%d\n", iusb_max, rc);
+		return rc;
+	}
+#endif
 
 	if (chip->safety_time != 0) {
 		rc = pm_chg_tchg_max_set(chip, chip->safety_time);
@@ -3473,8 +4007,6 @@ static int __devinit pm8921_chg_hw_init(struct pm8921_chg_chip *chip)
 	/* Disable EOC FSM processing */
 	pm8xxx_writeb(chip->dev->parent, CHG_BUCK_CTRL_TEST3, 0x91);
 
-	pm8921_chg_force_19p2mhz_clk(chip);
-
 	rc = pm_chg_masked_write(chip, CHG_CNTRL, VREF_BATT_THERM_FORCE_ON,
 						VREF_BATT_THERM_FORCE_ON);
 	if (rc)
@@ -3491,6 +4023,31 @@ static int __devinit pm8921_chg_hw_init(struct pm8921_chg_chip *chip)
 		pr_err("Failed to enable charging rc=%d\n", rc);
 		return rc;
 	}
+
+#ifdef ZTE_OVD_FEATURE	
+	/****************************************************************/		
+       high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ); 
+       
+       rt_status = pm_chg_get_rt_status(chip, VDD_LOOP_IRQ); 
+       
+       if(rt_status && high_transition) 
+       { 
+           pm_chg_vbatdet_set(chip,  
+           chip->max_voltage_mv + chip->resume_voltage_delta); 
+		   
+	    printk("pm8921 pm8921_chg_hw_init1:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);	   
+       } 
+       else 
+       { 
+            pm_chg_vbatdet_set(chip,  
+            chip->max_voltage_mv - chip->resume_voltage_delta); 
+			
+	     printk("pm8921 pm8921_chg_hw_init2:rt_status=%d,high_transition=%d,max_voltage_mv=%d,resume_voltage_delta=%d\n",
+			rt_status,high_transition,chip->max_voltage_mv,chip->resume_voltage_delta);		
+       }
+	/****************************************************************/		
+#endif
 
 	return 0;
 }
@@ -3662,6 +4219,71 @@ static void create_debugfs_entries(struct pm8921_chg_chip *chip)
 	}
 }
 
+#ifdef ZTE_CONFIG_LOW_BATTERY_ALARM
+extern void zte_pwrkey_input(void);
+static void zte_batt_alarm_work(struct work_struct *work)
+{
+       int rc;       
+       static int count = 0;
+       struct pm8921_chg_chip *chip=	container_of(work, struct pm8921_chg_chip, batt_alarm_work);
+
+       if(count == 0){
+	power_supply_changed(&chip->batt_psy);
+	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);
+
+	zte_pwrkey_input();
+
+	   if(count++ >= 10)
+	   	count = 0;
+       }
+       rc = pm8xxx_batt_alarm_enable(
+			PM8XXX_BATT_ALARM_LOWER_COMPARATOR);//only enable low battery alarm 
+       if (rc) {
+		printk("%s: unable to set alarm state\n", __func__);
+      	}
+
+}
+
+static int pm8921_low_battery_alarm_notify(struct notifier_block *nb,
+		unsigned long status, void *unused)
+{
+	int rc;
+         struct pm8921_chg_chip *chip= the_chip;
+      
+	printk("%s: status: %lu\n", __func__, status);
+
+	switch (status) {
+	case 0:
+		printk("%s: spurious interrupt\n", __func__);
+		break;
+	/* expected case - trip of low threshold */
+	case 1:
+		if( !is_dc_chg_plugged_in(the_chip) &&  (!is_usb_chg_plugged_in(the_chip) )) {
+    			rc = pm8xxx_batt_alarm_disable(
+    				PM8XXX_BATT_ALARM_UPPER_COMPARATOR);
+    			if (!rc)
+    				rc = pm8xxx_batt_alarm_disable(
+    					PM8XXX_BATT_ALARM_LOWER_COMPARATOR);
+    			if (rc)
+    				printk("%s: unable to set alarm state\n", __func__);
+	
+	wake_lock_timeout(&chip->batt_alarm_wake_lock, 5 * HZ);
+	schedule_work(&chip->batt_alarm_work);
+}
+		break;
+	case 2:
+		printk("%s: trip of high threshold\n", __func__);
+		break;
+	default:
+		printk("%s: error received\n", __func__);
+	};
+
+	return 0;
+}
+	  
+#endif
+		 
 static int pm8921_charger_suspend_noirq(struct device *dev)
 {
 	int rc;
@@ -3687,6 +4309,7 @@ static int pm8921_charger_resume_noirq(struct device *dev)
 		pr_err("Failed to Force Vref therm on rc=%d\n", rc);
 	return 0;
 }
+
 
 static int pm8921_charger_resume(struct device *dev)
 {
@@ -3729,6 +4352,7 @@ static int pm8921_charger_suspend(struct device *dev)
 
 	return 0;
 }
+
 static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -3770,7 +4394,6 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 		chip->warm_temp_dc = pdata->warm_temp * 10;
 	else
 		chip->warm_temp_dc = INT_MIN;
-
 	chip->temp_check_period = pdata->temp_check_period;
 	chip->max_bat_chg_current = pdata->max_bat_chg_current;
 	chip->cool_bat_chg_current = pdata->cool_bat_chg_current;
@@ -3804,7 +4427,7 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	chip->usb_psy.num_properties = ARRAY_SIZE(pm_power_props_usb),
 	chip->usb_psy.get_property = pm_power_get_property_usb,
 
-	chip->dc_psy.name = "pm8921-dc",
+	chip->dc_psy.name = "ac",
 	chip->dc_psy.type = POWER_SUPPLY_TYPE_MAINS,
 	chip->dc_psy.supplied_to = pm_power_supplied_to,
 	chip->dc_psy.num_supplicants = ARRAY_SIZE(pm_power_supplied_to),
@@ -3826,10 +4449,10 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 
 	rc = power_supply_register(chip->dev, &chip->dc_psy);
 	if (rc < 0) {
-		pr_err("power_supply_register usb failed rc = %d\n", rc);
+		pr_err("power_supply_register dc failed rc = %d\n", rc);
 		goto unregister_usb;
 	}
-
+	
 	rc = power_supply_register(chip->dev, &chip->batt_psy);
 	if (rc < 0) {
 		pr_err("power_supply_register batt failed rc = %d\n", rc);
@@ -3844,6 +4467,66 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&chip->vin_collapse_check_work,
 						vin_collapse_check_worker);
 	INIT_DELAYED_WORK(&chip->unplug_check_work, unplug_check_worker);
+	
+#ifdef ZTE_CONFIG_LOW_BATTERY_ALARM
+	wake_lock_init(&chip->batt_alarm_wake_lock, WAKE_LOCK_SUSPEND,"zte_batt_alarm");
+
+	INIT_WORK(&chip->batt_alarm_work, zte_batt_alarm_work);
+	
+	rc = pm8xxx_batt_alarm_disable(PM8XXX_BATT_ALARM_UPPER_COMPARATOR);
+	if (!rc)
+		rc = pm8xxx_batt_alarm_disable(
+			PM8XXX_BATT_ALARM_LOWER_COMPARATOR);
+	if (rc) {
+		printk("%s: unable to set batt alarm state\n", __func__);
+		goto free_irq;
+	}
+
+	/*
+	 * The batt-alarm driver requires sane values for both min / max,
+	 * regardless of whether they're both activated.
+	 */
+	rc = pm8xxx_batt_alarm_threshold_set(
+			PM8XXX_BATT_ALARM_LOWER_COMPARATOR, 3300);
+	if (!rc)
+		rc = pm8xxx_batt_alarm_threshold_set(
+			PM8XXX_BATT_ALARM_UPPER_COMPARATOR, 4450);//compatible to high voltage battery
+	if (rc) {
+		printk("%s: unable to set batt alarm threshold\n", __func__);
+		goto free_irq;
+	}
+
+	rc = pm8xxx_batt_alarm_hold_time_set(
+				PM8XXX_BATT_ALARM_HOLD_TIME_16_MS);
+	if (rc) {
+		printk("%s: unable to set batt alarm hold time\n", __func__);
+		goto free_irq;
+	}
+
+	/* PWM enabled at 2Hz */
+	rc = pm8xxx_batt_alarm_pwm_rate_set(1, 7, 4);
+	if (rc) {
+		printk("%s: unable to set batt alarm pwm rate\n", __func__);
+		goto free_irq;
+	}
+
+	rc = pm8xxx_batt_alarm_register_notifier(&low_battery_alarm_notifier);
+	if (rc) {
+		printk("%s: unable to register alarm notifier\n", __func__);
+		goto free_irq;
+	}
+	
+         rc = pm8xxx_batt_alarm_enable(
+				PM8XXX_BATT_ALARM_LOWER_COMPARATOR);//only enable low battery alarm 
+	if (rc) {
+		printk("%s: unable to set alarm state\n", __func__);
+		goto free_irq;
+	}				
+#endif	
+
+#ifdef ZTE_CONFIG_SCREEN_ON_WITHOUT_KEYOCDE
+	wake_lock_init(&chip->charger_wake_lock, WAKE_LOCK_SUSPEND, "zte_chg_event");
+#endif
 
 	rc = request_irqs(chip, pdev);
 	if (rc) {
@@ -3857,8 +4540,9 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	enable_irq_wake(chip->pmic_chg_irq[BAT_TEMP_OK_IRQ]);
 	enable_irq_wake(chip->pmic_chg_irq[VBATDET_LOW_IRQ]);
 	enable_irq_wake(chip->pmic_chg_irq[FASTCHG_IRQ]);
+	
 	/*
-	 * if both the cool_temp_dc and warm_temp_dc are invalid device doesnt
+	 * if both the cool_temp_dc and warm_temp_dc are zero the device doesnt
 	 * care for jeita compliance
 	 */
 	if (!(chip->cool_temp_dc == INT_MIN && chip->warm_temp_dc == INT_MIN)) {
@@ -3880,9 +4564,10 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	if (chip->update_time) {
 		INIT_DELAYED_WORK(&chip->update_heartbeat_work,
 							update_heartbeat);
+
 		schedule_delayed_work(&chip->update_heartbeat_work,
 				      round_jiffies_relative(msecs_to_jiffies
-							(chip->update_time)));
+							(FIRST_UPDATE_TIME_MS)));
 	}
 	return 0;
 
@@ -3903,10 +4588,28 @@ static int __devexit pm8921_charger_remove(struct platform_device *pdev)
 {
 	struct pm8921_chg_chip *chip = platform_get_drvdata(pdev);
 
+        #ifdef ZTE_CONFIG_LOW_BATTERY_ALARM//added by zhang.yu_1 for low battery alarm
+	int rc = 0;
+        #endif
+	
 	free_irqs(chip);
 	platform_set_drvdata(pdev, NULL);
 	the_chip = NULL;
 	kfree(chip);
+	
+        #ifdef ZTE_CONFIG_LOW_BATTERY_ALARM//added by zhang.yu_1 for low battery alarm
+	rc = pm8xxx_batt_alarm_disable(PM8XXX_BATT_ALARM_UPPER_COMPARATOR);
+	if (!rc)
+		rc = pm8xxx_batt_alarm_disable(
+			PM8XXX_BATT_ALARM_LOWER_COMPARATOR);
+	if (rc)
+		printk("%s: unable to set low batt alarm state\n", __func__);
+
+	rc |= pm8xxx_batt_alarm_unregister_notifier(&low_battery_alarm_notifier);
+	if (rc)
+		printk("%s: unable to register low batt alarm notifier\n", __func__);
+	#endif
+	
 	return 0;
 }
 static const struct dev_pm_ops pm8921_pm_ops = {

@@ -33,15 +33,11 @@ config MT9D112
 	  MICRON 2M YUV Sensor
 config IMX074
 	bool "Sensor IMX074 (BAYER 13.5M)"
-	depends on MSM_CAMERA
-	---help---
-	SONY 13.5 MP Bayer Sensor
-config OV5640
-	bool "Sensor OV5640 (YUV 5M)"
-	depends on MSM_CAMERA && !MSM_CAMERA_V4L2
+	depends on MSM_CAMERA && (ARCH_MSM8X60 || ARCH_MSM8960)
 	default n
 	---help---
-	Omni 5M YUV Sensor
+	SONY 13.5 MP Bayer Sensor
+
 config WEBCAM_OV7692_QRD
 	bool "Sensor OV7692 QRD(VGA YUV)"
 	depends on MSM_CAMERA && ARCH_MSM7X27A && !MSM_CAMERA_V4L2
@@ -120,8 +116,15 @@ config MT9E013
 config IMX074_ACT
 	bool "Actuator IMX074 (BAYER 13.5M)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 	Actuator for SONY 13.5 MP Bayer Sensor
+config OV8820_ACT
+	bool "Actuator OV8820 (BAYER 8.0M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	Actuator for OV 8.0 MP Bayer Sensor
 
 config S5K3E2FX
 	bool "Sensor s5k3e2fx (Samsung 5M)"
@@ -175,8 +178,53 @@ config IMX072
 
 config OV2720
 	bool "Sensor ov2720 (Omnivision 2MP)"
-	depends on MSM_CAMERA
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
 
+config OV8820
+	bool "Sensor ov8820 (Omnivision 8M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  Omnivision 8M Bayer Sensor
+config OV5640
+	bool "Sensor ov5640 (Omnivision 5M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  Omnivision 5M YUV Sensor
+config OV7692
+	bool "Sensor ov7692 (Omnivision 0.3M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  Omnivision 0.3M YUV Sensor
+config OV9740
+	bool "Sensor ov9740 (Omnivision 1.3M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  Omnivision 1.3M YUV Sensor
+config ISPCAM
+	bool "isp mbg041 for 12m  "
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  isp mbg041 for 12m
+	  
+config GSBI7_SHARE
+	bool "gsbi7 share setting for 8960  "
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  gsbi7 share setting for 8960
+	  
+config S5K5CAGA
+	bool "Sensor s5k5caga (Samsung 3M)"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default n
+	---help---
+	  Samsung 3M YUV Sensor
 config VB6801
 	bool "Sensor vb6801"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !MSM_CAMERA_V4L2
@@ -231,3 +279,24 @@ config S5K3L1YX
 		4 mipi lanes, preview config = 1984 * 1508 at 30 fps,
 		snapshot config = 4000 * 3000 at 20 fps,
 		hfr video at 60, 90 and 120 fps.
+		
+config FLSH_ADP1650
+	bool "FLSH_ADP1650"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	  Enable support for LED flash for msm camera
+
+config GSBI7_SHARE
+	bool "GSBI7_SHARE"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	  Enable support for LED flash for msm camera  
+
+config SENSOR_INFO
+	bool "Get sensor info through EM"
+	depends on MSM_CAMERA && ARCH_MSM8960
+	default y
+	---help---
+	  Get sensor id and name through EM (Engineering Mode)

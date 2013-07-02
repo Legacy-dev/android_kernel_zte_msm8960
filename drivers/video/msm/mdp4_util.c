@@ -382,6 +382,8 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		/* When underun occurs mdp clear the histogram registers
 		that are set before in hw_init so restore them back so
 		that histogram works.*/
+		for (i=0;i<10;++i)
+			printk("yichangming here underrun\n");
 		for (i = 0; i < MDP_HIST_MGMT_MAX; i++) {
 			mgmt = mdp_hist_mgmt_array[i];
 			if (!mgmt)

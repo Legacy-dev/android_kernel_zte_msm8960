@@ -14,7 +14,6 @@
 /* #define DEBUG */
 #define DEV_DBG_PREFIX "HDMI: "
 /* #define REG_DUMP */
-
 #define CEC_MSG_PRINT
 #define TOGGLE_CEC_HARDWARE_FSM
 
@@ -2952,7 +2951,7 @@ static void hdmi_msm_hdcp_enable(void)
 	uint8 bcaps;
 	uint32 found_repeater = 0x0;
 	char *envp[2];
-
+//	msleep(300);
 	if (!hdmi_msm_has_hdcp()) {
 		switch_set_state(&external_common_state->sdev, 1);
 		DEV_INFO("Hdmi state switch to %d: %s\n",
@@ -3674,7 +3673,9 @@ static void hdmi_msm_avi_info_frame(void)
 	uint32 regVal;
 	int i;
 	int mode = 0;
-
+/* yuanqiang begin */
+	extern uint8_t VIDEO_CAPABILITY_D_BLOCK_found;
+/* yuanqiang end */
 	switch (external_common_state->video_resolution) {
 	case HDMI_VFRMT_720x480p60_4_3:
 		mode = 0;
@@ -3742,7 +3743,23 @@ static void hdmi_msm_avi_info_frame(void)
 	/* Data Byte 02: C1 C0 M1 M0 R3 R2 R1 R0 */
 	aviInfoFrame[4]  = hdmi_msm_avi_iframe_lut[1][mode];
 	/* Data Byte 03: ITC EC2 EC1 EC0 Q1 Q0 SC1 SC0 */
-	aviInfoFrame[5]  = hdmi_msm_avi_iframe_lut[2][mode];
+    
+        /* yuanqiang begin */
+	//aviInfoFrame[5]  = hdmi_msm_avi_iframe_lut[2][mode];
+	if(VIDEO_CAPABILITY_D_BLOCK_found)
+       {
+		aviInfoFrame[5]  = (hdmi_msm_avi_iframe_lut[2][mode]&0xF3)|0x04; 
+		DEV_DBG("VIDEO_CAPABILITY_D_BLOCK_found = true, limited range\n");
+		//you should set the AVI info  Quantization Ranges to limited range here(16-235).
+	}
+	else
+       {
+    	      aviInfoFrame[5]  = hdmi_msm_avi_iframe_lut[2][mode]&0xF3;  
+	      DEV_DBG("VIDEO_CAPABILITY_D_BLOCK_found= false. defult range\n");
+		//you should set the AVI info  Quantization Ranges to defult range here(0-255).
+	 }
+        /* yuanqiang end */
+
 	/* Data Byte 04: 0 VIC6 VIC5 VIC4 VIC3 VIC2 VIC1 VIC0 */
 	aviInfoFrame[6]  = hdmi_msm_avi_iframe_lut[3][mode];
 	/* Data Byte 05: 0 0 0 0 PR3 PR2 PR1 PR0 */
@@ -4250,7 +4267,9 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 {
 	int rc;
 	struct platform_device *fb_dev;
-
+#ifndef CONFIG_MHL_Sii8334
+	return -ENODEV;
+#endif
 	if (cpu_is_apq8064())
 		return -ENODEV;
 

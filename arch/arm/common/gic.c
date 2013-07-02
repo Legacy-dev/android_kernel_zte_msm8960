@@ -234,6 +234,10 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	     i = find_next_bit(pending, gic->max_irq, i+1)) {
 		pr_warning("%s: %d triggered", __func__,
 					i + gic->irq_offset);
+		{//ZTE ZhengChao 
+			extern void print_irq_info(int i);
+			print_irq_info(i + gic->irq_offset);
+		}
 	}
 }
 

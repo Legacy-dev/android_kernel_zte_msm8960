@@ -30,6 +30,8 @@
 #define SENTINEL_BYTE_2 0xAA
 #define SENTINEL_BYTE_3 0xFF
 
+//#undef CONFIG_MSM_RTB_SEPARATE_CPUS
+
 /* Write
  * 1) 3 bytes sentinel
  * 2) 1 bytes of log type
@@ -65,8 +67,9 @@ DEFINE_PER_CPU(atomic_t, msm_rtb_idx_cpu);
 static atomic_t msm_rtb_idx;
 #endif
 
+
 struct msm_rtb_state msm_rtb = {
-	.filter = 1 << LOGK_READL | 1 << LOGK_WRITEL | 1 << LOGK_LOGBUF,
+	.filter = 1 << LOGK_LOGBUF|1<<LOGK_HOTPLUG|1<<LOGK_CTXID|1<<LOGK_PM|1<<LOGK_OTHER,
 	.enabled = 1,
 };
 
@@ -156,7 +159,7 @@ int uncached_logk_pc(enum logk_event_type log_type, void *caller,
 	msm_rtb_emit_sentinel(start);
 	msm_rtb_write_type(log_type, start);
 	msm_rtb_write_caller(caller, start);
-	msm_rtb_write_idx(i, start);
+	msm_rtb_write_idx(jiffies, start);
 	msm_rtb_write_data(data, start);
 	mb();
 

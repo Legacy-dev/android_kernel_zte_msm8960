@@ -1063,7 +1063,8 @@ void thermal_zone_device_update(struct thermal_zone_device *tz)
 					printk(KERN_EMERG
 					       "Critical temperature reached (%ld C), shutting down.\n",
 					       temp/1000);
-					orderly_poweroff(true);
+					panic("[thermal] THERMAL_TRIP_CRITICAL"); 
+					//orderly_poweroff(true);
 				}
 			}
 			break;
@@ -1087,12 +1088,15 @@ void thermal_zone_device_update(struct thermal_zone_device *tz)
 				if (tz->ops->notify)
 					ret = tz->ops->notify(tz, count,
 								trip_type);
+#if 0				
 			if (!ret) {
 				printk(KERN_EMERG
 				"Critical temperature reached (%ld C), \
 					shutting down.\n", temp/1000);
-				orderly_poweroff(true);
+				panic("[thermal] THERMAL_TRIP_CRITICAL_LOW");
+				//orderly_poweroff(true);
 				}
+#endif			
 			}
 			break;
 		case THERMAL_TRIP_ACTIVE:

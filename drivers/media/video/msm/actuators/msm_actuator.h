@@ -13,6 +13,7 @@
 #define MSM_ACTUATOR_H
 
 #include <linux/i2c.h>
+#include <linux/debugfs.h>
 #include <mach/camera.h>
 #include <mach/gpio.h>
 #include <media/v4l2-subdev.h>
@@ -56,6 +57,12 @@ struct damping_params_t {
 struct damping_t {
 	struct damping_params_t *ringing_params;
 };
+/*Added by CDZ_CAM_ZTE for AF tunning of raw sensor(ov8820) from qual */
+struct debugfs_params_t {
+	uint8_t step_dir;
+	uint16_t step_value;
+	uint16_t step_boundary;
+};
 
 struct msm_actuator_func_tbl {
 	int32_t (*actuator_i2c_write_b_af)(struct msm_actuator_ctrl_t *,
@@ -86,6 +93,8 @@ struct msm_actuator_ctrl_t {
 	struct mutex *actuator_mutex;
 	struct msm_actuator_ctrl actuator_ext_ctrl;
 	struct msm_actuator_func_tbl func_tbl;
+	/*Added by CDZ_CAM_ZTE for AF tunning of raw sensor(ov8820) from qual */
+	struct debugfs_params_t *debugfs_data;
 	struct v4l2_subdev *sdev;
 	struct v4l2_subdev_ops *act_v4l2_subdev_ops;
 	struct msm_actuator_set_info_t set_info;

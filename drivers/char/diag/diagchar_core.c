@@ -48,7 +48,12 @@ struct diagchar_priv {
 };
 /* The following variables can be specified by module options */
  /* for copy buffer */
+#if 0 // modified by ZTE_BOOT_JIA_20120515 jia.jia
 static unsigned int itemsize = 4096; /*Size of item in the mempool */
+#else
+static unsigned int itemsize = 8192; //2048 /*Size of item in the mempool */
+#endif
+
 static unsigned int poolsize = 10; /*Number of items in the mempool */
 /* for hdlc buffer */
 static unsigned int itemsize_hdlc = 8192; /*Size of item in the mempool */
@@ -57,7 +62,7 @@ static unsigned int poolsize_hdlc = 8;  /*Number of items in the mempool */
 static unsigned int itemsize_write_struct = 20; /*Size of item in the mempool */
 static unsigned int poolsize_write_struct = 8; /* Num of items in the mempool */
 /* This is the max number of user-space clients supported at initialization*/
-static unsigned int max_clients = 15;
+static unsigned int max_clients = 30;
 static unsigned int threshold_client_limit = 30;
 /* This is the maximum number of pkt registrations supported at initialization*/
 unsigned int diag_max_reg = 600;

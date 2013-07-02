@@ -512,6 +512,25 @@ int msm_camera_flash_set_led_state(
 int msm_strobe_flash_init(struct msm_sync *sync, uint32_t sftype);
 int msm_flash_ctrl(struct msm_camera_sensor_info *sdata,
 			struct flash_ctrl_data *flash_info);
+
+#ifdef CONFIG_ISPCAM
+
+int msm_flash_mode_ctrl(struct msm_camera_sensor_info *sdata,
+			int flash_mode);
+#endif
+
+
+
+int isp_camera_flash_led_disable(void);
+int isp_camera_flash_led_enable(void);
+int isp_camera_flash_led_auto(void);
+//YANWEI_FLSH_ADP1650_20120328 begin
+#ifdef CONFIG_FLSH_ADP1650
+int ADP1650_disable(void);
+int ADP1650_torchmode_enable(void);
+int ADP1650_flashmode_enable(void);
+#endif
+//YANWEI_FLSH_ADP1650_20120328 end
 #else
 static inline int msm_camera_flash_set_led_state(
 	struct msm_camera_sensor_flash_data *fdata,
@@ -530,6 +549,17 @@ static inline int msm_flash_ctrl(
 {
 	return -ENOTSUPP;
 }
+
+#ifdef CONFIG_ISPCAM
+
+int msm_flash_mode_ctrl(struct msm_camera_sensor_info *sdata,
+			int   flash_mode)
+{
+	return -ENOTSUPP;
+
+}
+#endif
+
 #endif
 
 
@@ -706,4 +736,6 @@ int msm_camera_config_gpio_table
 	(struct msm_camera_sensor_info *sinfo, int gpio_en);
 int msm_camera_request_gpio_table
 	(struct msm_camera_sensor_info *sinfo, int gpio_en);
+int msm_camera_power_on(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr);
+int msm_camera_power_off(struct device *dev,struct msm_camera_sensor_info *sinfo,struct regulator **reg_ptr);
 #endif

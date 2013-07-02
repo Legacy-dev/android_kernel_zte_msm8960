@@ -21,6 +21,17 @@
 #include <mach/pmic.h>
 #include <mach/camera.h>
 #include <mach/gpio.h>
+#ifdef CONFIG_ISPCAM
+int flash_stats=0;
+#endif
+
+//ZTE_CAM_LJ_20120409 add yuv sensor flash function
+#if defined(CONFIG_MACH_ELDEN) || defined(CONFIG_MACH_DANA)||defined(CONFIG_MACH_HAYES)||defined(CONFIG_MACH_ILIAMNA)
+#define FLASH_GPIO_CONTROL
+#define MSM_CAMERA_FLASH_LED_GPIO   (2)
+#else
+#define MSM_CAMERA_FLASH_LED_GPIO   (255)     // illegal value
+#endif
 
 struct i2c_client *sx150x_client;
 struct timer_list timer_flash;
@@ -145,6 +156,10 @@ static int config_flash_gpio_table(enum msm_cam_flash_stat stat,
 	return rc;
 }
 
+
+//ZTE_CAM_LJ_20120409 add yuv sensor flash function
+
+#if 0
 int msm_camera_flash_current_driver(
 	struct msm_camera_sensor_flash_current_driver *current_driver,
 	unsigned led_state)
@@ -406,46 +421,115 @@ int msm_camera_flash_pmic(
 
 	return rc;
 }
+#else
+/*
+ * Flash LED GPIO Setting
+ * 1: pull up GPIO
+ * 0: pull down GPIO
+ */
+ static int32_t msm_camera_flash_set_led_gpio(int32_t gpio_val)
+{
+    int32_t rc = -EFAULT;
 
+    rc = gpio_direction_output(MSM_CAMERA_FLASH_LED_GPIO, gpio_val);
+
+    return rc;
+}
+
+/*
+ * External Function
+ */
+int32_t msm_camera_flash_led_enable(void)
+{
+    int32_t gpio_val;
+    int32_t rc = 0;
+
+    gpio_val = 1;
+    rc = msm_camera_flash_set_led_gpio(gpio_val);
+
+    return rc;
+}
+
+/*
+ * External Function
+ */
+int32_t msm_camera_flash_led_disable(void)
+{
+
+    int32_t gpio_val;
+    int32_t rc;
+    gpio_val = 0;
+    rc = msm_camera_flash_set_led_gpio(gpio_val);
+
+    return rc;
+}
+
+//add by lijing for gpio flash 20120607
+void  msm_camera_set_flash_torch_mode(int32_t times)
+{
+	int level;
+	pr_err("lijing:set flash times=%d\n",times);
+	for(level = 0;level < times;level++)
+	{
+		gpio_set_value(MSM_CAMERA_FLASH_LED_GPIO, 1);
+		udelay(2);
+		gpio_set_value(MSM_CAMERA_FLASH_LED_GPIO, 0);
+		udelay(2);
+	}
+	gpio_set_value(MSM_CAMERA_FLASH_LED_GPIO, 1);
+}
 int32_t msm_camera_flash_set_led_state(
 	struct msm_camera_sensor_flash_data *fdata, unsigned led_state)
 {
-	int32_t rc;
+	int32_t rc=0;
+    pr_err("led_state=%d\n",led_state);
+	switch (led_state) {
+	case MSM_CAMERA_LED_OFF:
+		
+		#ifdef CONFIG_ISPCAM
+	    rc = isp_camera_flash_led_disable();
+		#else
+	    rc = msm_camera_flash_led_disable();
+		#endif
+	//YANWEI_FLSH_ADP1650_20120328 begin
+#ifdef CONFIG_FLSH_ADP1650 		
+	rc = ADP1650_disable();
+#endif
+	//YANWEI_FLSH_ADP1650_20120328 end
+	break;
 
-	if (fdata->flash_type != MSM_CAMERA_FLASH_LED ||
-		fdata->flash_src == NULL)
-		return -ENODEV;
-
-	switch (fdata->flash_src->flash_sr_type) {
-	case MSM_CAMERA_FLASH_SRC_PMIC:
-		rc = msm_camera_flash_pmic(&fdata->flash_src->_fsrc.pmic_src,
-			led_state);
+	case MSM_CAMERA_LED_HIGH:
+#ifdef CONFIG_ISPCAM
+	rc = isp_camera_flash_led_enable();
+#else
+	rc = msm_camera_flash_led_enable();
+#endif
+	//YANWEI_FLSH_ADP1650_20120328 begin
+#ifdef CONFIG_FLSH_ADP1650 		
+        rc = ADP1650_flashmode_enable();
+		#endif		
 		break;
 
-	case MSM_CAMERA_FLASH_SRC_PWM:
-		rc = msm_camera_flash_pwm(&fdata->flash_src->_fsrc.pwm_src,
-			led_state);
-		break;
+	case MSM_CAMERA_LED_LOW:		
+#ifdef CONFIG_FLSH_ADP1650 		
+        rc = ADP1650_torchmode_enable();
+#endif	
 
-	case MSM_CAMERA_FLASH_SRC_CURRENT_DRIVER:
-		rc = msm_camera_flash_current_driver(
-			&fdata->flash_src->_fsrc.current_driver_src,
-			led_state);
+//add by lijing for gpio flash 20120607
+#ifdef FLASH_GPIO_CONTROL
+	 msm_camera_set_flash_torch_mode(13);
+#endif
 		break;
-
-	case MSM_CAMERA_FLASH_SRC_EXT:
-		rc = msm_camera_flash_external(
-			&fdata->flash_src->_fsrc.ext_driver_src,
-			led_state);
-		break;
-
+		
 	default:
-		rc = -ENODEV;
+		rc = 0;
 		break;
 	}
 
 	return rc;
 }
+
+#endif
 
 static int msm_strobe_flash_xenon_charge(int32_t flash_charge,
 		int32_t charge_enable, uint32_t flash_recharge_duration)
@@ -603,7 +687,10 @@ int msm_flash_ctrl(struct msm_camera_sensor_info *sdata,
 	struct flash_ctrl_data *flash_info)
 {
 	int rc = 0;
+	pr_err("isp flash msm_flash_ctrl \n");
+	
 	sensor_data = sdata;
+	
 	switch (flash_info->flashtype) {
 	case LED_FLASH:
 		rc = msm_camera_flash_set_led_state(sdata->flash_data,
@@ -614,8 +701,45 @@ int msm_flash_ctrl(struct msm_camera_sensor_info *sdata,
 			&(flash_info->ctrl_data.strobe_ctrl));
 		break;
 	default:
+   		
 		pr_err("Invalid Flash MODE\n");
 		rc = -EINVAL;
 	}
 	return rc;
 }
+#ifdef CONFIG_ISPCAM
+int msm_flash_mode_ctrl(struct msm_camera_sensor_info *sdata,
+	int flash_mode)
+{
+	int rc = 0;
+	pr_err("isp flash msm_flash_ctrl \n");
+	
+	flash_stats=flash_mode;
+
+	
+	switch (flash_mode) {
+	case 0:
+		pr_err("LED_MODE_OFF Flash MODE\n");
+		break;
+		
+	case 1:
+		pr_err("LED_MODE_AUTO Flash MODE\n");
+		break;
+		
+	case 2:
+		pr_err("LED_MODE_ON Flash MODE\n");
+		break;
+		
+	case 3:
+		pr_err("LED_MODE_TORCH Flash MODE\n");
+		break;	
+		
+	default:
+   		
+		pr_err("Invalid Flash MODE\n");
+		rc = -EINVAL;
+	}
+	return rc;
+}
+#endif
+

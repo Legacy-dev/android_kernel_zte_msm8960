@@ -177,6 +177,10 @@ struct sps_mem_stats {
 /* record debug info for debugfs */
 void sps_debugfs_record(const char *);
 
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+#endif
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end
+
 /* output the content of BAM-level registers */
 void print_bam_reg(void *);
 
@@ -188,7 +192,12 @@ void print_bam_selected_reg(void *);
 
 /* output the content of selected BAM pipe registers */
 void print_bam_pipe_selected_reg(void *, u32);
-#endif
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+//#endif
+
+/* output descriptor FIFO of a pipe */
+void print_bam_pipe_desc_fifo(void *, u32);
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end
 
 /**
  * Translate physical to virtual address

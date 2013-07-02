@@ -439,6 +439,80 @@ static void sps_debugfs_exit(void)
 }
 #endif
 
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 begin
+int sps_get_bam_debug_info(u32 dev, u32 option)
+{
+	int res = 0;
+	struct sps_bam *bam;
+	u32 i;
+	u32 num_pipes = 0;
+	void *vir_addr;
+
+	if (dev == 0) {
+		SPS_ERR("sps:%s:device handle should not be 0.\n", __func__);
+		return SPS_ERROR;
+	}
+
+	mutex_lock(&sps->lock);
+	/* Search for the target BAM device */
+	bam = sps_h2bam(dev);
+	if (bam == NULL) {
+		pr_err("sps:Can't find any BAM with handle 0x%x.", dev);
+		mutex_unlock(&sps->lock);
+		return SPS_ERROR;
+	}
+	mutex_unlock(&sps->lock);
+
+	vir_addr = bam->base;
+	num_pipes = bam->props.num_pipes;
+
+	switch (option) {
+	case 1: /* output all registers of this BAM */
+		print_bam_reg(vir_addr);
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_reg(vir_addr, i);
+		break;
+	case 2: /* output BAM-level registers */
+		print_bam_reg(vir_addr);
+		break;
+	case 3: /* output selected BAM-level registers */
+		print_bam_selected_reg(vir_addr);
+		break;
+	case 4: /* output selected registers of all pipes */
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_selected_reg(vir_addr, i);
+		break;
+	case 5: /* output selected registers of some pipes */
+		print_bam_pipe_selected_reg(vir_addr, 4);
+		print_bam_pipe_selected_reg(vir_addr, 5);
+		break;
+	case 6: /* output desc FIFO of all active pipes */
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_desc_fifo(vir_addr, i);
+		break;
+	case 7: /* output desc FIFO of some pipes */
+		print_bam_pipe_desc_fifo(vir_addr, 4);
+		print_bam_pipe_desc_fifo(vir_addr, 5);
+		break;
+	case 8: /* output selected registers and valid desc FIFO of all pipes */
+		for (i = 0; i < num_pipes; i++) {
+			print_bam_pipe_selected_reg(vir_addr, i);
+			print_bam_pipe_desc_fifo(vir_addr, i);
+		}
+		break;
+	case 9: /* output selected registers and desc FIFO of some pipes */
+		print_bam_pipe_selected_reg(vir_addr, 4);
+		print_bam_pipe_desc_fifo(vir_addr, 4);
+		print_bam_pipe_selected_reg(vir_addr, 5);
+		print_bam_pipe_desc_fifo(vir_addr, 5);
+		break;
+	default:
+		pr_info("sps:no option is chosen yet.");
+	}
+
+	return res;
+}
+//jzq add PATCH_MSM8960_15150_Dump_BAM_registers_in_event_of_failure_20120731 end
 /**
  * Initialize SPS device
  *

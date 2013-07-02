@@ -865,7 +865,12 @@ void branch_clk_disable(struct clk *clk)
 	struct branch_clk *branch = to_branch_clk(clk);
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
+	//debug gsbi7 i2c skip disable
+	if(strcmp("gsbi7_p_clk",branch->c.dbg_name)){
 	__branch_clk_disable_reg(&branch->b, branch->c.dbg_name);
+	}else{
+	pr_err("isp branch->c.dbg_name =%s so skip  __branch_clk_disable_reg \n",branch->c.dbg_name);
+	}
 	branch->enabled = false;
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 }

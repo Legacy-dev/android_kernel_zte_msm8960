@@ -74,6 +74,7 @@ obj-$(CONFIG_FB_MSM_MIPI_DSI_NOVATEK) += mipi_novatek.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_RENESAS) += mipi_renesas.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TRULY) += mipi_truly.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_SIMULATOR) += mipi_simulator.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_LEAD) += mipi_lead.o
 
 # MIPI Bridge
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TC358764_DSI2LVDS) += mipi_tc358764_dsi2lvds.o
@@ -116,6 +117,13 @@ obj-y += mipi_renesas_video_fwvga_pt.o mipi_renesas_cmd_fwvga_pt.o
 obj-y += mipi_chimei_wxga_pt.o
 obj-y += mipi_truly_video_wvga_pt.o
 else
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_LG4591_720HD) += mipi_zte_LG4591_720HD.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_N9500_720HD) += mipi_zte_n9500_720HD.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_NOVATEK_NT35510_WVGA) += mipi_zte_novatek_nt35510_wvga.o
+obj-$(CONFIG_FB_MSM_MIPI_LEAD_VIDEO_WVGA_PT) += mipi_lead_video_wvga_pt.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_SHARP_NT35516_QHD) += mipi_zte_sharp_nt35516_qHD.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_YUSHUN_NT35516_LG_QHD) += mipi_zte_yushun_nt35516_lg_qHD.o
+obj-$(CONFIG_FB_MSM_MIPI_ZTE_LEAD_NT35516_QHD) += mipi_zte_lead_nt35516_qHD.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT) += mipi_toshiba_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT) += mipi_toshiba_video_wsvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA) += mipi_toshiba_video_wuxga.o

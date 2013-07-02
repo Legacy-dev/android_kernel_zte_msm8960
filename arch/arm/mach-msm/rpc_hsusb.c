@@ -608,15 +608,15 @@ int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 		ret = msm_hsusb_is_serial_num_null(1);
 		if (ret)
 			return ret;
+	}else{
+
+		ret = msm_hsusb_is_serial_num_null(0);
+		if (ret)
+			return ret;
+		ret = msm_hsusb_send_serial_number(snum);
+		if (ret)
+			return ret;
 	}
-
-	ret = msm_hsusb_is_serial_num_null(0);
-	if (ret)
-		return ret;
-	ret = msm_hsusb_send_serial_number(snum);
-	if (ret)
-		return ret;
-
 	return 0;
 }
 

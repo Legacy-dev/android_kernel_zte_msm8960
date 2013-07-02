@@ -370,6 +370,15 @@ config LEDS_PMIC8058
 	  (Power Management IC) chip on Qualcomm reference boards,
 	  for example SURF and FFAs.
 
+config LED_OFF_INSUSPEND
+	bool "LED Support for Qualcomm PMIC8921"
+	default n
+	depends on LEDS_PM8XXX
+	help
+	  This option enables support for LEDs connected over PMIC8921
+	  (Power Management IC) chip on Qualcomm reference boards,
+	  for example SURF and FFAs.	  
+
 config LEDS_INTEL_SS4200
 	tristate "LED driver for Intel NAS SS4200 series"
 	depends on LEDS_CLASS
@@ -464,6 +473,15 @@ config LEDS_TRIGGERS
 
 comment "LED Triggers"
 
+config ZTE_SPOTLIGHTS_LEDS_GPIO
+	bool "Platform device bindings for GPIO pwm control camera flash"
+	depends on LEDS_GPIO
+	default m
+	help
+	  Let the leds-gpio driver drive LEDs which have been defined as
+	  platform devices.  If you don't know what this means, say yes.
+
+
 config LEDS_TRIGGER_TIMER
 	tristate "LED Timer Trigger"
 	depends on LEDS_TRIGGERS
@@ -526,7 +544,7 @@ config LEDS_TRIGGER_SLEEP
 	depends on LEDS_TRIGGERS && HAS_EARLYSUSPEND
 	help
 	  This turns LEDs on when the screen is off but the cpu still running.
-
+	  
 comment "iptables trigger is under Netfilter config (LED target)"
 	depends on LEDS_TRIGGERS
 

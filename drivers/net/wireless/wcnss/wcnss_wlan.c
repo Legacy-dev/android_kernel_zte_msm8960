@@ -23,6 +23,9 @@
 #include <linux/gpio.h>
 #include <mach/peripheral-loader.h>
 
+#include <linux/proc_fs.h>
+extern int zte_wifi_get_mac_addr(unsigned char *addr);
+
 #define DEVICE "wcnss_wlan"
 #define VERSION "1.01"
 #define WCNSS_PIL_DEVICE "wcnss"
@@ -407,13 +410,68 @@ fail_gpio_res:
 	return ret;
 }
 
+static int common_read_proc(
+char *page, char **start, off_t off, int count, int *eof, void *data, char *inputbuf , int inputlen )
+{
+		int len = inputlen;
+		static int goff=0;
+		if(off==0)
+			goff=0;
+        if (off >= len)
+                return 0;
+        if (count > len - off)
+                count = len - off;		
+		*start=page;		
+        memcpy(page, inputbuf + goff, count);
+		goff+=count;		
+		printk("read:*start=0x%x len=%d off=%d count=%d\n", (unsigned int)*start,len,(int)off,count);	
+		//return 0;
+		if(off+count==len)
+			*eof=1;
+        return count;
+}
+
+
+static int proc_read_wifi_mac(
+char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int len = 0;
+	char mac_buf[6];
+	char mac_formated[20];
+	
+	printk("%s, enter!\n", __func__);
+	
+	zte_wifi_get_mac_addr(mac_buf);
+	
+	sprintf(mac_formated, "%02X:%02X:%02X:%02X:%02X:%02X",
+		mac_buf[0], mac_buf[1], mac_buf[2],
+		mac_buf[3], mac_buf[4], mac_buf[5]);
+
+	len = strlen(mac_formated);
+
+	printk("buf=%s\n", mac_formated);
+	printk("len=%d\n", len);
+	
+	return common_read_proc(page, start, off, count, eof, data, mac_formated, len);	
+ 
+}
+
 #ifndef MODULE
 static int wcnss_node_open(struct inode *inode, struct file *file)
 {
 	struct platform_device *pdev;
+	static struct proc_dir_entry * wifi_d_entry;
 
 	pr_info(DEVICE " triggered by userspace\n");
 
+	wifi_d_entry = create_proc_entry("WIFI_MAC_ADDR", 0, NULL);
+	if (wifi_d_entry)
+	{
+		wifi_d_entry->read_proc = proc_read_wifi_mac;
+		wifi_d_entry->write_proc = NULL;
+		wifi_d_entry->data = NULL;
+	}	
+	
 	pdev = penv->pdev;
 	return wcnss_trigger_config(pdev);
 }

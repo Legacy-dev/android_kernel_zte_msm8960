@@ -497,6 +497,12 @@ int subsystem_restart(const char *subsys_name)
 		break;
 
 	case RESET_SOC:
+#ifdef CONFIG_MSM_DLOAD_MODE
+		{
+			extern void enable_dload_mode(void);
+			enable_dload_mode();
+		}
+#endif
 		panic("subsys-restart: Resetting the SoC - %s crashed.",
 			subsys->name);
 		break;

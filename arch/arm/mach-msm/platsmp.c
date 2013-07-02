@@ -25,6 +25,8 @@
 #include <mach/hardware.h>
 #include <mach/msm_iomap.h>
 
+#include <mach/msm_rtb.h>
+
 #include "pm.h"
 #include "scm-boot.h"
 #include "spm.h"
@@ -169,7 +171,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 					  "address\n");
 		per_cpu(cold_boot_done, cpu) = true;
 	}
-
+	MARK(0);
 	pen_release = cpu;
 	dmac_flush_range((void *)&pen_release,
 			 (void *)(&pen_release + sizeof(pen_release)));
@@ -188,6 +190,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 		if (cnt++ >= 10)
 			break;
 	}
+	MARK(1);
 
 	return 0;
 }

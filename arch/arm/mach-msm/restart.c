@@ -84,6 +84,12 @@ static void set_dload_mode(int on)
 	}
 }
 
+void enable_dload_mode(void)
+{
+	pr_info("enable dload_mode\n");
+	set_dload_mode(1);
+}
+
 static int dload_set(const char *val, struct kernel_param *kp)
 {
 	int ret;
@@ -136,7 +142,7 @@ static void msm_power_off(void)
 	__msm_power_off(1);
 }
 
-static void cpu_power_off(void *data)
+void cpu_power_off(void *data)
 {
 	int rc;
 
@@ -164,24 +170,11 @@ static void cpu_power_off(void *data)
 		;
 }
 
-static irqreturn_t resout_irq_handler(int irq, void *dev_id)
-{
-	pr_warn("%s PMIC Initiated shutdown\n", __func__);
-	oops_in_progress = 1;
-	smp_call_function_many(cpu_online_mask, cpu_power_off, NULL, 0);
-	if (smp_processor_id() == 0)
-		cpu_power_off(NULL);
-	preempt_disable();
-	while (1)
-		;
-	return IRQ_HANDLED;
-}
-
 void arch_reset(char mode, const char *cmd)
 {
 
 #ifdef CONFIG_MSM_DLOAD_MODE
-
+#if 0
 	/* This looks like a normal reboot at this point. */
 	set_dload_mode(0);
 
@@ -195,6 +188,15 @@ void arch_reset(char mode, const char *cmd)
 	/* Kill download mode if master-kill switch is set */
 	if (!download_mode)
 		set_dload_mode(0);
+#else
+	if(restart_mode == RESTART_DLOAD)
+		set_dload_mode(1);
+	else if(download_mode)
+		set_dload_mode(in_panic);
+	else
+		set_dload_mode(0);
+
+#endif
 #endif
 
 	printk(KERN_NOTICE "Going down for restart now\n");
@@ -232,6 +234,36 @@ void arch_reset(char mode, const char *cmd)
 	printk(KERN_ERR "Restarting has failed\n");
 }
 
+irqreturn_t resout_irq_handler(int irq, void *dev_id)
+{
+#if 0
+	pr_warn("%s PMIC Initiated shutdown\n", __func__);
+	oops_in_progress = 1;
+	smp_call_function_many(cpu_online_mask, cpu_power_off, NULL, 0);
+	if (smp_processor_id() == 0)
+		cpu_power_off(NULL);
+#else	
+     pr_info("%s PMIC Initiated reset\n", __func__);
+
+#ifdef CONFIG_ZTE_LONGPOWER_FOR_HW_RESET
+    download_mode=0;
+     arch_reset(0,0);
+#else
+     /*slf2012_0613 note:pm8921 will not care the PS_HOLD when stay on,so pull PS_HPLD to low cannot reset the handset */
+     pm8xxx_stay_on();
+   
+     restart_mode = RESTART_DLOAD;
+     download_mode=1;
+     arch_reset(0,0);
+#endif	
+
+#endif
+
+       preempt_disable();
+	while (1)	;
+	return IRQ_HANDLED;
+}
+
 static int __init msm_restart_init(void)
 {
 	int rc;
@@ -243,9 +275,15 @@ static int __init msm_restart_init(void)
 	/* Reset detection is switched on below.*/
 	set_dload_mode(1);
 #endif
+
+#ifdef CONFIG_ZTE_LONGPOWER_FOR_HW_RESET
+	set_dload_mode(0);
+#endif
+
 	msm_tmr0_base = msm_timer_get_timer0_base();
 	restart_reason = MSM_IMEM_BASE + RESTART_REASON_ADDR;
 	pm_power_off = msm_power_off;
+
 
 	if (pmic_reset_irq != 0) {
 		rc = request_any_context_irq(pmic_reset_irq,

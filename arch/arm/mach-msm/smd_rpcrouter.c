@@ -1012,12 +1012,37 @@ static char *type_to_str(int i)
 }
 #endif
 
+int is_in_hibernate(void);
+static int rpc_send_accepted_void_reply(struct msm_rpc_endpoint *client,
+					uint32_t xid, uint32_t accept_status)
+{
+	int rc = 0;
+	uint8_t reply_buf[sizeof(struct rpc_reply_hdr)];
+	struct rpc_reply_hdr *reply = (struct rpc_reply_hdr *)reply_buf;
+
+	reply->xid = cpu_to_be32(xid);
+	reply->type = cpu_to_be32(1); /* reply */
+	reply->reply_stat = cpu_to_be32(RPCMSG_REPLYSTAT_ACCEPTED);
+
+	reply->data.acc_hdr.accept_stat = cpu_to_be32(accept_status);
+	reply->data.acc_hdr.verf_flavor = 0;
+	reply->data.acc_hdr.verf_length = 0;
+
+	rc = msm_rpc_write(client, reply_buf, sizeof(reply_buf));
+	if (rc < 0)
+		printk(KERN_ERR"could not write RPC response: %d\n", rc);
+	return rc;
+}
+static struct msm_rpc_reply *get_avail_reply(struct msm_rpc_endpoint *ept);
+static void set_pend_reply(struct msm_rpc_endpoint *ept,
+			   struct msm_rpc_reply *reply);
 static void do_read_data(struct work_struct *work)
 {
 	struct rr_header hdr;
 	struct rr_packet *pkt;
 	struct rr_fragment *frag;
 	struct msm_rpc_endpoint *ept;
+	struct rpc_request_hdr *req = NULL;
 #if defined(CONFIG_MSM_ONCRPCROUTER_DEBUG)
 	struct rpc_request_hdr *rq;
 #endif
@@ -1177,6 +1202,34 @@ static void do_read_data(struct work_struct *work)
 	}
 
 packet_complete:
+
+	req = (struct rpc_request_hdr *) frag->data;
+	//when system is in hibernate and gps rpc callback will cause reboot, send a void reply
+	if (is_in_hibernate() && (be32_to_cpu(req->prog) == 0x3100008C)) {
+		struct msm_rpc_reply* reply = NULL;
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
+		reply = get_avail_reply(ept);
+		if (!reply) {
+			kfree(frag);
+			kfree(pkt);
+			goto done;
+		}
+		reply->cid = pkt->hdr.src_cid;
+		reply->pid = pkt->hdr.src_pid;
+		reply->xid = req->xid;
+		reply->prog = req->prog;
+		reply->vers = req->vers;
+		set_pend_reply(ept, reply);
+		rpc_send_accepted_void_reply(
+			ept, be32_to_cpu(req->xid),
+			RPC_ACCEPTSTAT_PROG_UNAVAIL);
+		printk(KERN_ERR"rpc called when hibernate cid 0x%08x 0x%08x\n",
+		       hdr.dst_cid, be32_to_cpu(req->prog));
+		kfree(frag);
+		kfree(pkt);
+		goto done;
+	}
+
 	spin_lock(&ept->read_q_lock);
 	D("%s: take read lock on ept %p\n", __func__, ept);
 	wake_lock(&ept->read_q_wake_lock);

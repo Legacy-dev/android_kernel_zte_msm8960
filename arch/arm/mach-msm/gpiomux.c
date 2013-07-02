@@ -13,6 +13,10 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <mach/gpiomux.h>
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+
+
 
 struct msm_gpiomux_rec {
 	struct gpiomux_setting *sets[GPIOMUX_NSETTINGS];
@@ -103,6 +107,76 @@ int msm_gpiomux_put(unsigned gpio)
 }
 EXPORT_SYMBOL(msm_gpiomux_put);
 
+#if defined(CONFIG_DEBUG_FS)
+
+void msm_gpiomux_dump(void)
+{
+	unsigned gpio;
+	pr_info("%s: dump suspended info\n",__func__);
+	for (gpio=0; gpio<msm_gpiomux_ngpio; gpio++) {
+		struct msm_gpiomux_rec *rec = msm_gpiomux_recs + gpio;
+		if (rec->sets[GPIOMUX_SUSPENDED]==NULL)
+			pr_info("[%3d] null\n",gpio);
+		else
+			pr_info("[%3d] func:%d dir=%d drv=%d pull=%d\n",
+					gpio,(unsigned)rec->sets[GPIOMUX_SUSPENDED]->func,
+						 (unsigned)rec->sets[GPIOMUX_SUSPENDED]->dir,
+						 (unsigned)rec->sets[GPIOMUX_SUSPENDED]->drv,
+						 (unsigned)rec->sets[GPIOMUX_SUSPENDED]->pull);
+	}
+	pr_info("%s: dump active info\n",__func__);
+	for (gpio=0; gpio<msm_gpiomux_ngpio; gpio++) {
+		struct msm_gpiomux_rec *rec = msm_gpiomux_recs + gpio;
+		if (rec->sets[GPIOMUX_ACTIVE]==NULL)
+			pr_info("[%3d] null\n",gpio);
+		else
+			pr_info("[%3d] func:%d dir=%d drv=%d pull=%d\n",
+					gpio,(unsigned)rec->sets[GPIOMUX_ACTIVE]->func,
+						 (unsigned)rec->sets[GPIOMUX_ACTIVE]->dir,
+						 (unsigned)rec->sets[GPIOMUX_ACTIVE]->drv,
+						 (unsigned)rec->sets[GPIOMUX_ACTIVE]->pull);
+	}
+	
+}
+
+static int list_gpiomux_show(struct seq_file *m, void *unused)
+{
+	msm_gpiomux_dump();
+
+	return 0;
+}
+
+
+static int list_gpiomux_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, list_gpiomux_show, inode->i_private);
+}
+
+
+static const struct file_operations list_gpiomux_fops = {
+	.open		= list_gpiomux_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
+
+int __init gpiomux_debug_init(void)
+{
+	int err = 0;	
+
+	if (!debugfs_create_file("gpiomux_info", S_IRUGO, NULL,
+				NULL, &list_gpiomux_fops))
+		return -ENOMEM;
+	
+	return err;
+}
+
+#else
+static void gpiomux_debug_init(void) {}
+
+#endif
+
 int msm_gpiomux_init(size_t ngpio)
 {
 	if (!ngpio)
@@ -129,6 +203,8 @@ int msm_gpiomux_init(size_t ngpio)
 
 	msm_gpiomux_ngpio = ngpio;
 
+	gpiomux_debug_init();
+
 	return 0;
 }
 EXPORT_SYMBOL(msm_gpiomux_init);
@@ -148,3 +224,4 @@ void msm_gpiomux_install(struct msm_gpiomux_config *configs, unsigned nconfigs)
 	}
 }
 EXPORT_SYMBOL(msm_gpiomux_install);
+
