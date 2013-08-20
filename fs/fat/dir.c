@@ -1240,7 +1240,13 @@ int fat_add_entries(struct inode *dir, void *slots, int nr_slots,
 	struct super_block *sb = dir->i_sb;
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct buffer_head *bh, *prev, *bhs[3]; /* 32*slots (672bytes) */
+	
+#if 0 // merged from msm8960-gb by ZTE_BOOT_JIA_20120105 jia.jia
 	struct msdos_dir_entry *de;
+#else
+	struct msdos_dir_entry *de = NULL;
+#endif
+
 	int err, free_slots, i, nr_bhs;
 	loff_t pos, i_pos;
 

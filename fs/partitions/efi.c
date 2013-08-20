@@ -534,7 +534,12 @@ static int find_valid_gpt(struct parsed_partitions *state, gpt_header **gpt,
 		return 0;
 
 	lastlba = last_lba(state->bdev);
+
+#if 0 // merged from msm8960-gb by ZTE_BOOT_JIA_20120105 jia.jia
         if (!force_gpt) {
+#else
+        if (force_gpt) {
+#endif
                 /* This will be added to the EFI Spec. per Intel after v1.02. */
                 legacymbr = kzalloc(sizeof (*legacymbr), GFP_KERNEL);
                 if (legacymbr) {
